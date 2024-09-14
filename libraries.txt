@@ -1,0 +1,41 @@
+%% Update conda env
+conda update -n base -c defaults conda
+conda install -n base conda-libmamba-solver
+conda config --set solver libmamba
+
+%% Create and activate env
+conda create -n cardioCad python=3.10.0 anaconda
+conda activate cardioCad
+
+%% Install packages using conda
+conda install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia
+conda install jupyter %% already instaled with pytorch
+conda install -c conda-forge basemap
+conda install -c conda-forge scikit-learn
+conda install -c conda-forge scikit-image
+conda install -c conda-forge openpyxl
+conda install -c conda-forge seaborn
+conda install pandas
+conda install tqdm
+conda install -c conda-forge pymatreader
+conda install -c conda-forge pycompare
+conda install -c conda-forge pingouin
+conda install -c conda-forge natsort
+conda install -c conda-forge pydicom
+conda install -c anaconda sqlalchemy
+conda install -c anaconda pyodbc
+pip install -U kaleido
+%% Dash
+pip install dash-bootstrap-components
+conda install -c conda-forge dash %%
+conda install -c plotly jupyter-dash %%NO
+conda install -c conda-forge dash-renderer %%NO
+conda install -c conda-forge dash-html-components %%NO
+conda install -c conda-forge dash-core-components %%NO
+conda install -c conda-forge plotly %%NO
+
+
+
+%% Install packages using pip
+pip install opencv-python %%NO
+pip install dash-mantine-components %%NO
