@@ -1,3 +1,7 @@
+access_token = {
+    'hugging_face': '***REMOVED***'
+}
+
 parameters = {
     'save_plot_dir': 'D:\PHD\Development\Python\Cardio_CAD\pattern_recognition\plots',
     'sourceData': 'db'  # xlsx,...
@@ -12,6 +16,15 @@ stParameters = {
     'stFilePattern': 'SL_SEG_TRACE.txt'
     # 'stFilePattern': 'FULL_TRACE_SEG.CSV',  # depends on if going to use calculated strain or coord  FIX IMPROVE CALL
 
+}
+philipsParameters = {
+    'philipsPath': 'D:/PHD/Experiments/CAD/DOPPLER-CIP/Philips/',
+    'philipsAnalysis_all': 'results Qlab 9_BASELINE',
+    'philipsAnalysis_baseline': 'results_baseline',
+    'cardiac_views': ['2ch','4ch','aplax'],
+    'philipsFilePattern': '.txt',
+    'R-R_values': ['AV R-R', 'MV R-R', 'R-AVC'],
+    'strainColumnPattern': 'Long. Strain'
 }
 
 SPEQLE_parameters = {  # Read from SPEQLE Traces
@@ -112,12 +125,18 @@ dbTableNames = {
     'speqle_segmentalStrain_T': 'speqle_segmentalStrain',
     'speqle_segmentalStrainInterp_T': 'speqle_segmentalStrainInterp',
     'calculated_reconstructedTraces_T': 'calculated_reconstructedTraces',
-    'calculated_speqle_pca_T': 'calculated_speqle_pca',
+    'calculated_pca_params_T': 'calculated_pca_params',
     'calculated_pca_results_T': 'calculated_pca_results',
-    'st_strainValues_T': 'st_strainValues',
-    'st_strainValuesInterp_T': 'st_strainValuesInterp',
-    'st_segStrainCurves_T': 'st_segStrainCurves',
-    'st_segStrainCurvesInterp_T': 'st_segStrainCurvesInterp',
+    'calculated_dr_encoded_data_T': 'calculated_dr_encoded_data',
+    'calculated_features_remodeling_T': 'calculated_features_remodeling',
+    'st_strainValues_T': 'ste_strainValues',
+    'st_strainValuesInterp_T': 'ste_strainValuesInterp',
+    'st_segmentalStrain_T': 'ste_segmentalStrain',
+    'st_segmentalStrainInterp_T': 'ste_segmentalStrainInterp',
+    'phi_strainValues_T': 'phi_strainValues',
+    'phi_strainValuesInterp_T': 'phi_strainValuesInterp',
+    'phi_segmentalStrain_T': 'phi_segmentalStrain',
+    'phi_segmentalStrainInterp_T': 'phi_segmentalStrainInterp',
     'config_tracingSourceName_T': 'config_tracingSourceName',
     'config_cardiacSegments_T': 'config_cardiacSegments',
     'config_repeatabilityCoefficient_T': 'config_repeatabilityCoefficient',
@@ -135,7 +154,8 @@ dbTableNames = {
     'imgData_3DEcho_rest_BL_T': 'imgData_3DEcho_rest_BL',
     'imgData_3DEcho_rest_FU_T': 'imgData_3DEcho_rest_FU',
     'imgData_CMR_rest_BL_T': 'imgData_CMR_rest_BL',
-    'imgData_CMR_rest_FU_T': 'imgData_CMR_rest_FU'
+    'imgData_CMR_rest_FU_T': 'imgData_CMR_rest_FU',
+    'echo_biomarkers_imputed_T': 'echo_biomarkers_imputed'
 
 }
 dbParameters = {

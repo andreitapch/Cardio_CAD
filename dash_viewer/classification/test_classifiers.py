@@ -13,19 +13,12 @@ from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_sc
 
 from sklearn.model_selection import StratifiedKFold
 
-from dash import html, dcc, Output, Input, callback, State, ctx, dash, dash_table
+from dash import dash_table
 
-from dash_viewer.classification.load_prepare_data import get_pca_components, get_echoParams_data, \
-    get_concat_18_segments, \
-    select_data_type
+from dash_viewer.classification.load_prepare_data import (get_feature_components, get_concat_18_segments,
+                                                          select_data_type, get_echoParams_data)
 from dash_viewer.dimensionality_reduction.dimen_reduction_viewer import load_table_db
-from pattern_recognition.data.database_connection import sql_queries
-from pattern_recognition.utils.parameters_dics import dbConParameters
-from pattern_recognition.data.database_connection import sql_queries
-from pattern_recognition.utils.parameters_dics import dbConParameters, dbTableNames
-from pattern_recognition.data.database_connection.db_con import DatabaseConnection as dbc
-from pattern_recognition.data_preprocessing.speqle.concatenate_traces import CurveConcatenator
-from pattern_recognition.data.SPEQLE_data.loadTracesSpeqle import LoadTracesSpeqle as load_traces_speqle
+from pattern_recognition.utils.parameters_dics import dbTableNames
 
 
 def split_data(data, feature_col_name, unbalanced_type):
@@ -46,10 +39,11 @@ def split_data(data, feature_col_name, unbalanced_type):
     else:
         oversample = None
 
-    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    skf = StratifiedKFold(n_splits=5, shuffle=False)
     for train_index, test_index in skf.split(X, y):
         X_train, X_test = X[train_index], X[test_index]
         y_train, y_test = y[train_index], y[test_index]
+
 
         if oversample is not None:
             X_train_resampled, y_train_resampled = oversample.fit_resample(X_train, y_train)
@@ -58,14 +52,14 @@ def split_data(data, feature_col_name, unbalanced_type):
             yield X_train, y_train, X_test, y_test, test_index
 
 
-def calculate_metrics(y_true, y_pred, fold):
+def calculate_metrics(y_true, y_pred, y_pred_proba, fold):
     precision = precision_score(y_true, y_pred, average='weighted', zero_division=0)
     recall = recall_score(y_true, y_pred, average='weighted', zero_division=0)
     f1 = f1_score(y_true, y_pred, average='weighted')
     accuracy = accuracy_score(y_true, y_pred)
     cm = confusion_matrix(y_true, y_pred)
     mcc = matthews_corrcoef(y_true, y_pred)
-    auc_ = roc_auc_score(y_true, y_pred)
+    auc_ = roc_auc_score(y_true, y_pred_proba)
 
     return {'Fold': fold, 'Accuracy': accuracy, 'Precision': precision,
             'Recall': recall, 'F1-score': f1, 'MCC': mcc, 'AUC': auc_,
@@ -94,7 +88,7 @@ def create_scatter_plot(all_X_test, all_y_pred):
 
 
 def create_data_table_results(results, isColumn):
-    Accuracies, Precisions, Recalls, F1_scores, MCCs, AUCs,  =  [], [], [], [], [], []
+    Accuracies, Precisions, Recalls, F1_scores, MCCs, AUCs, = [], [], [], [], [], []
     if not isColumn:
         metrics_by_fold = {f'Fold {i + 1}': [] for i in range(5)}
         confusion_matrices = []
@@ -170,12 +164,12 @@ def load_data_traces(test_type, isImputed, df_isImputed_0):
     if test_type == 'concat_18_segments_100' or test_type == 'concat_18_segments_95':
         concat_tracesDF, feature_col_name = get_concat_18_segments(reconstructed_tracesDF)
     elif test_type == 'gls_remod_class':
-        concat_tracesDF, feature_col_name = get_echoParams_data(concat_tracesDF, reconstructed_tracesDF, True)
+        concat_tracesDF, feature_col_name = get_echoParams_data(concat_tracesDF, reconstructed_tracesDF, 'global_strain')
     elif test_type == 'echoParams_remod_class':
-        concat_tracesDF, feature_col_name = get_echoParams_data(concat_tracesDF, reconstructed_tracesDF, False)
+        concat_tracesDF, feature_col_name = get_echoParams_data(concat_tracesDF, reconstructed_tracesDF, None)
     else:
-        concat_tracesDF, feature_col_name = get_pca_components(concat_tracesDF, df_isImputed_0, filter_by_type,
-                                                               isImputed, reconstructed_tracesDF)
+        concat_tracesDF, feature_col_name = get_feature_components(concat_tracesDF, df_isImputed_0, filter_by_type,
+                                                                   isImputed, reconstructed_tracesDF)
     if 'patientID' not in concat_tracesDF.columns:
         reconstructed_tracesDF_unique = reconstructed_tracesDF.drop_duplicates(subset='study_nr', keep='first')
         concat_tracesDF = pd.merge(concat_tracesDF, reconstructed_tracesDF_unique[['study_nr', 'patientID']],
@@ -198,6 +192,7 @@ def count_data(reconstructed_tracesDF):
 
 
 def extract_sex_data(females_df, males_df, pred_tracesDF, clf):
+
     male_pred_df = pd.merge(pred_tracesDF, males_df, left_on='patientID', right_on='Patient_ID', how='left')
     male_pred_df = male_pred_df.dropna(subset=['Patient_ID'])
     male_pred_df['Patient_ID'] = male_pred_df['Patient_ID'].astype(int)
@@ -208,8 +203,11 @@ def extract_sex_data(females_df, males_df, pred_tracesDF, clf):
     cm_male = confusion_matrix(male_pred_df['Total_Remodeling'], male_pred_df['prediction'])
     cm_female = confusion_matrix(female_pred_df['Total_Remodeling'], female_pred_df['prediction'])
 
-    metrics_male = calculate_metrics(male_pred_df['Total_Remodeling'], male_pred_df['prediction'], fold=None)
-    metrics_female = calculate_metrics(female_pred_df['Total_Remodeling'], female_pred_df['prediction'], fold=None)
+    metrics_male = calculate_metrics(male_pred_df['Total_Remodeling'], male_pred_df['prediction'],
+                                     male_pred_df['pred_proba'],fold=None)
+
+    metrics_female = calculate_metrics(female_pred_df['Total_Remodeling'], female_pred_df['prediction'],
+                                       female_pred_df['pred_proba'],fold=None)
 
     return cm_female, cm_male, metrics_male, metrics_female
 
@@ -220,7 +218,6 @@ def get_clinical_data(unique_patientID_str):
                                     unique_patientID_str)
     clinical_dataDF_gender['Gender'] = clinical_dataDF['Gender'].map(lambda x: 'Male' if x == 0 else 'Female')
     no_subjects_sex = clinical_dataDF_gender['Gender'].value_counts()
-    # print(no_subjects_sex)
     males_df = clinical_dataDF[clinical_dataDF['Gender'] == 0]
     females_df = clinical_dataDF[clinical_dataDF['Gender'] == 1]
     age_counts = {
@@ -229,7 +226,6 @@ def get_clinical_data(unique_patientID_str):
     }
     over_50_df = clinical_dataDF[clinical_dataDF['Age'] >= 50]
     under_50_df = clinical_dataDF[clinical_dataDF['Age'] < 50]
-    # print(age_counts)
     return males_df, females_df, over_50_df, under_50_df
 
 
@@ -253,28 +249,20 @@ def create_cm(confusion_matrices, instance_class, ifColumn):
 
 def classify_per_fold(concat_tracesDF, feature_col_name, fold, predictions_df, results,
                       unbalanced_type, clf, all_y_pred, all_X_test):
-    # X_train_check = pd.DataFrame()
-    # X_test_check = pd.DataFrame()
     for X_train, y_train, X_test, y_test, test_indices in split_data(concat_tracesDF, feature_col_name,
                                                                      unbalanced_type):
         fold += 1
-        # # Convert X_train and X_test lists to DataFrames
-        # X_train_df = pd.DataFrame(X_train)
-        # X_test_df = pd.DataFrame(X_test)
-        #
-        # # Insert each DataFrame as a new column in X_train_check and X_test_check
-        # X_train_check[f'Fold_{fold}'] = X_train_df
-        # X_test_check[f'Fold_{fold}'] = X_test_df
-
-
         clf.fit(X_train, y_train)
         y_pred = clf.predict(X_test)
-        metrics = calculate_metrics(y_test, y_pred, fold)
+        y_pred_proba = clf.predict_proba(X_test)[:, 1]
+        metrics = calculate_metrics(y_test, y_pred, y_pred_proba, fold)
         results.append((y_test, y_pred, metrics))
 
         fold_predictions = pd.DataFrame({
             'study_nr': concat_tracesDF.iloc[test_indices]['study_nr'].values,
-            'prediction': y_pred
+            'prediction': y_pred,
+            'pred_proba': y_pred_proba
+
         })
 
         predictions_df = pd.concat([predictions_df, fold_predictions])
@@ -282,7 +270,11 @@ def classify_per_fold(concat_tracesDF, feature_col_name, fold, predictions_df, r
         all_y_pred.extend(y_pred)
         all_X_test.extend(X_test)
 
-    final_predictions = predictions_df.groupby('study_nr')['prediction'].agg(lambda x: x.mode()[0]).reset_index()
-    pred_tracesDF = pd.merge(concat_tracesDF, final_predictions[['study_nr', 'prediction']], on='study_nr',
+    # final_predictions = predictions_df.groupby('study_nr')['prediction'].agg(lambda x: x.mode()[0]).reset_index()
+    final_predictions = predictions_df.groupby('study_nr').agg({
+        'prediction': lambda x: x.mode()[0],
+        'pred_proba': lambda x: x.mode()[0]
+    }).reset_index()
+    pred_tracesDF = pd.merge(concat_tracesDF, final_predictions[['study_nr', 'prediction','pred_proba']], on='study_nr',
                              how='left')
     return results, pred_tracesDF

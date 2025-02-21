@@ -1,11 +1,9 @@
-import torch
 from torch import nn
 
 class AutoencoderClassifier(nn.Module):
     def __init__(self, input_dim, encoding_dim, num_classes):
         super(AutoencoderClassifier, self).__init__()
 
-        # Building the Encoder network
         self.encoder = nn.Sequential(
             nn.Linear(input_dim, 100),
             nn.Tanh(),
@@ -19,7 +17,6 @@ class AutoencoderClassifier(nn.Module):
             nn.ReLU()
         )
 
-        # Building the Decoder network
         self.decoder = nn.Sequential(
             nn.Linear(6, 12),
             nn.Tanh(),
@@ -33,7 +30,6 @@ class AutoencoderClassifier(nn.Module):
             nn.ReLU()
         )
 
-        # Building the Output Layer
         self.classifier = nn.Sequential(
             nn.Linear(6, num_classes),
             nn.Softmax(dim=1)

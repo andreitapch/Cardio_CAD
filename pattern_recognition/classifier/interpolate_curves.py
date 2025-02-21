@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from scipy.io import loadmat
-# from  pattern_recognition.utils.parameters_dics import segment_name_dict
+from  pattern_recognition.utils.parameters_dics import segment_name_dict
 
 class InterpolateCurves:
     def __init__(self, dir_path, cardiac_seg, cardiac_phases, reference_label):
@@ -80,9 +80,6 @@ class InterpolateCurves:
 
         df = pd.DataFrame(data)
         return df
-
-
-
 
     def split_st_to_phases(self, pat_type):
         self.strain_phases = [[] for _ in range(self.phases)]

@@ -5,12 +5,11 @@ import pandas as pd
 import plotly.graph_objects as go
 from sklearn.impute import KNNImputer
 import dash_bootstrap_components as dbc
-from sklearn.model_selection import KFold, GroupKFold
-from sklearn.model_selection import train_test_split
-from dash import dcc, html, Input, Output, dash, State, callback
+from sklearn.model_selection import KFold
+from dash import dcc, html, Input, Output, dash, callback
 
 from utils.error_metrics import calculate_rrsse
-from pattern_recognition.data.SPEQLE_data.loadTracesSpeqle import LoadTracesSpeqle as load_traces_speqle
+from pattern_recognition.data.loadTraces import LoadTraces as load_traces
 from pattern_recognition.data_preprocessing.speqle.concatenate_traces import CurveConcatenator
 
 
@@ -20,13 +19,29 @@ from pattern_recognition.data_preprocessing.speqle.concatenate_traces import Cur
      Output('lowest_rrss-str-id', 'children')],
     Input('textarea-k', 'value'),
     Input('missing_traces_id', 'value'),
+    Input('data-source-dropdown_bdi', 'value')
     # [State('study_nr-dropdown', 'value')]
 )
-def find_best_k(k_value, sample_n):
+def find_best_k(k_value, sample_n, data_source):
     global instance_imputation
     instance_imputation = DataImputationKBest()
-    if k_value is not None and sample_n is not None:
-        instance_imputation.load_data()
+    if k_value is not None and sample_n is not None and data_source is not None:
+        data_source_mapping = {
+            'Speqle': 'speqle_segmentalStrainInterp_T',
+            'GE': 'st_segmentalStrainInterp_T',
+            'Philips': 'phi_segmentalStrainInterp_T',
+            'GE_Philips': ['st_segmentalStrainInterp_T', 'phi_segmentalStrainInterp_T']
+        }
+
+        if data_source in data_source_mapping:
+            table_name = data_source_mapping[data_source]
+        else:
+            raise ValueError("Invalid data source provided")
+        if data_source != 'GE_Philips':
+            instance_imputation.load_data(table_name, data_source)
+        else:
+            instance_imputation.load_data(table_name, data_source)
+
         instance_imputation.find_best_k(k_value, sample_n)
         study_nr = np.sort(instance_imputation.imputed_df['study_nr'].unique())
         dropdown_options = [{'label': i, 'value': i} for i in study_nr]
@@ -38,6 +53,7 @@ def find_best_k(k_value, sample_n):
         return dropdown_options, best_K, lowest_rrss
 
     else:
+        # raise ValueError("Invalid data source provided")
         return dash.no_update, dash.no_update, dash.no_update
 
 
@@ -86,8 +102,9 @@ def update_output(study_nr, sample_n):
 
 
 def plot_curve(fig, imputed_tracesDF, original_trace, segment_name, color_index):
-    dark_colors = ['darkblue', 'darkred', 'darkgreen']
-    light_colors = ['magenta', 'lightcoral', 'lightgreen']
+    dark_colors = ['darkmagenta', 'darkred', 'darkgreen', 'darkblue', 'darkviolet', 'darkcyan']
+    light_colors = ['magenta', 'lightcoral', 'lightgreen', 'lightblue', 'plum', 'lightcyan']
+
     imputed_trace = imputed_tracesDF['imputed_trace']
     fig.add_trace(go.Scatter(y=imputed_trace, mode='lines', name=f'Imputed {segment_name}', line=dict(color=dark_colors[color_index % len(dark_colors)], dash='dash')))
     fig.add_trace(go.Scatter(y=original_trace, mode='lines', name=f'Original {segment_name}', line=dict(color=light_colors[color_index % len(light_colors)])))
@@ -155,12 +172,31 @@ class DataImputationKBest:
         filtered_df = self.tracesDF[self.tracesDF['study_nr'].isin(study_nrs)]
         return filtered_df
 
-    def load_data(self):
-        table_name = 'speqle_segmentalStrainInterp_T'
-        self.loaded_tracesDF = load_traces_speqle(self.study_type, table_name, 0)
+    def load_data(self, table_name, data_source):
+
+        self.loaded_tracesDF = load_traces(self.study_type, table_name, 0, False)
+
+
+        if data_source == 'GE_Philips':
+            speqle_traces_ge = load_traces(self.study_type, table_name[0], 0, False)
+            speqle_traces_ge.tracesDF['origin'] = 'GE'
+
+            speqle_traces_philips = load_traces(self.study_type, table_name[1], 0, False)
+            speqle_traces_philips.tracesDF['origin'] = 'Philips'
+
+            self.loaded_tracesDF.tracesDF = pd.concat([speqle_traces_ge.tracesDF, speqle_traces_philips.tracesDF])
+            self.loaded_tracesDF.tracesDF = self.loaded_tracesDF.tracesDF[
+                ~self.loaded_tracesDF.tracesDF['segment_wall'].str.lower().str.contains('apex', na=False)]
+
+        if data_source == 'Philips':
+            self.loaded_tracesDF.tracesDF = self.loaded_tracesDF.tracesDF[
+                ~self.loaded_tracesDF.tracesDF['segment_wall'].str.lower().str.contains('apex', na=False)]
+
         self.tracesDF = self.loaded_tracesDF.tracesDF.dropna(subset=['strain_trace'])
         self.tracesDF['id_position'] = self.tracesDF['id_position'].str.rstrip()
         self.tracesDF_18 = self.select_data_with_rows_per_study_nr(18)
+        pass
+
 
     def trace_reconstruction(self, study_nr):
         start = 0
@@ -184,52 +220,57 @@ class DataImputationKBest:
         imputed_tracesDF = pd.DataFrame(imputed_traces)
         return imputed_tracesDF
 
+
     def find_best_k(self, k, sample_n):
         unique_study_nrs = self.tracesDF_18['study_nr'].unique()
         rrsse_errors_array = np.zeros((k, 5))
         kf = KFold(n_splits=5, shuffle=False)
-        # kf = GroupKFold(n_splits=5, shuffle=False)
-        fold = 0
 
-        for train_index, test_index in kf.split(unique_study_nrs):
-            fold += 1
+        # Initialize the best k and lowest RRSS to track across all folds
+        best_k = None
+        lowest_rrss = float('inf')
+        imputed_df = pd.DataFrame()  # Initialize an empty dataframe to store results
+
+        for fold, (train_index, test_index) in enumerate(kf.split(unique_study_nrs), 1):
             train_study_nrs, test_study_nrs = unique_study_nrs[train_index], unique_study_nrs[test_index]
             self.prepare_traces(test_study_nrs, train_study_nrs, fold, sample_n)
 
-            lowest_rrss = float('inf')
-            best_k = None
-
+            # Prepare the feature arrays once per fold
             X_train = np.stack(self.concat_train_df[self.feature_col_name].values)
             X_test_nan = np.stack(self.concat_test_nan_df[self.feature_col_name].values)
             X_test = np.stack(self.concat_test_df[self.feature_col_name].values)
             df_imputed = self.imputed_df.copy()
-            for k in range(1, k + 1):
+
+            for k_val in range(1, k + 1):
                 imputedFold_df = df_imputed.copy()
-                rrss_errors, imputed_traces = self.impute_train(X_test, X_test_nan, X_train, k)
-                rrsse_errors_array[k - 1][fold - 1] = np.mean(rrss_errors)
+                rrss_errors, imputed_traces = self.impute_train(X_test, X_test_nan, X_train, k_val)
+                rrsse_errors_array[k_val - 1][fold - 1] = np.mean(rrss_errors)
+
+                # Store imputed traces and parameters
                 imputedFold_df['imputed_trace'] = imputed_traces.tolist()
-                imputedFold_df['k'] = k
+                imputedFold_df['k'] = k_val
                 imputedFold_df['fold'] = fold
 
-                if k == 1 and fold == 1:
-                    imputed_df = imputedFold_df.copy()
-                else:
-                    imputed_df = pd.concat([imputed_df, imputedFold_df], ignore_index=True)
-            pass
+                # Append to the final dataframe
+                imputed_df = pd.concat([imputed_df, imputedFold_df], ignore_index=True)
 
-        for k in range(1, k + 1):
-            mean_rrss = np.mean(rrsse_errors_array[k - 1][:])
+        # Now, after all folds, find the best k
+        for k_val in range(1, k + 1):
+            mean_rrss = np.mean(rrsse_errors_array[k_val - 1, :])
 
             if mean_rrss < lowest_rrss:
-                best_k = k
+                best_k = k_val
                 lowest_rrss = mean_rrss
 
+        # Final imputed dataframe with the best k
         self.best_k = best_k
         self.lowest_rrss = lowest_rrss
         mask = (imputed_df['k'] == self.best_k)
         imputed_df = imputed_df[mask]
         imputed_df.reset_index(drop=True, inplace=True)
         self.imputed_df = imputed_df
+
+
 
     def prepare_traces(self, test_study_nrs, train_study_nrs, fold, sample_n):
         self.train_df = self.tracesDF_18[self.tracesDF_18['study_nr'].isin(train_study_nrs)]
@@ -291,6 +332,20 @@ class DataImputationKBest:
 
             dbc.Row([
                 dbc.Col([
+                    # html.Br(),
+                    html.Br(),
+                    dcc.Dropdown(
+                        id='data-source-dropdown_bdi',
+                        options=[
+                            {'label': 'Speqle', 'value': 'Speqle'},
+                            {'label': 'GE', 'value': 'GE'},
+                            {'label': 'Philips', 'value': 'Philips'},
+                            {'label': 'GE + Philips', 'value': 'GE_Philips'}
+                        ],
+                        placeholder='Select Data Source',
+                        style={'width': '300px', 'marginLeft': '20px'}
+                    ),
+                    html.Br(),
                     html.Br(),
                     html.Label('Enter max K:', style={'fontWeight': 'bold', 'marginLeft': '20px'}),
 
@@ -322,6 +377,8 @@ class DataImputationKBest:
                 ], width=3),
                 dbc.Col([
                     html.Br(),
+                    html.Br(),
+                    # html.Br(),
                     dbc.Card([
                         dbc.CardBody([
                             html.Div(id='best-k-str-id', children=' '),

@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 import plotly.figure_factory as ff
 import dash_bootstrap_components as dash_bc
@@ -8,21 +7,20 @@ from sklearn.model_selection import train_test_split
 import torch
 from torch import nn, optim
 from torch.utils.tensorboard import SummaryWriter
-from dash import html, dcc, Output, Input, callback, State, ctx, dash, dash_table
+from dash import html, dcc, Output, Input, callback, dash, dash_table
 from sklearn.decomposition import PCA
 
 from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import ConfusionMatrixDisplay, roc_auc_score
+from sklearn.metrics import roc_auc_score
 from sklearn.metrics import accuracy_score, precision_score, recall_score
 from sklearn.metrics import matthews_corrcoef, f1_score, confusion_matrix
 
-from classifiers.autoencoder_classifier import AutoencoderClassifier
 from classifiers.nBeats_classifier import NBEATSClassifier
 from pattern_recognition.data.database_connection import sql_queries
 from pattern_recognition.utils.parameters_dics import dbConParameters
 from pattern_recognition.data.database_connection.db_con import DatabaseConnection as dbc
 from pattern_recognition.data_preprocessing.speqle.concatenate_traces import CurveConcatenator
-from pattern_recognition.data.SPEQLE_data.loadTracesSpeqle import LoadTracesSpeqle as load_traces_speqle
+from pattern_recognition.data.loadTraces import LoadTraces as load_traces
 
 
 def safe_eval(val):
@@ -223,7 +221,7 @@ class NBeats_classifier:
         self.calc_remod_df = None
 
     def load_imputed_data(self):
-        speqle = load_traces_speqle
+        speqle = load_traces
         df = speqle(self.studyType, 'speqle_segmentalStrainInterp_T', None)
         self.tracesDF = df.tracesDF[['study_nr', 'curve_segment', 'isImputed']]
         df_isImputed_1 = self.tracesDF[self.tracesDF['isImputed'] == 1]['study_nr'].unique()

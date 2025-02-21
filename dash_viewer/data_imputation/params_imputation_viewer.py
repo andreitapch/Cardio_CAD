@@ -1,21 +1,5 @@
-import ast
-import numpy as np
-import pandas as pd
-import plotly.graph_objects as go
-from sklearn.impute import KNNImputer
-
 import dash_bootstrap_components as dbcomp
-from dash import dcc, html, Input, Output, dash, State, callback, ctx
-
-from dash_viewer.data_imputation.load_dataTables import load_data_table_db
-from pattern_recognition.data.database_connection import sql_queries
-
-from pattern_recognition.utils.parameters_dics import dbTableNames, dbConParameters
-
-from pattern_recognition.data.database_connection.db_con import DatabaseConnection as dbc
-from pattern_recognition.data_preprocessing.speqle.concatenate_traces import CurveConcatenator
-from pattern_recognition.data.insert_to_db.insertSpeqleDB import InsertInterpTracesToDB, DeleteToDBWhere
-from pattern_recognition.data.SPEQLE_data.loadTracesSpeqle import LoadTracesSpeqle as load_traces_speqle
+from dash import html, Input, Output, dash, callback, ctx
 
 
 @callback(

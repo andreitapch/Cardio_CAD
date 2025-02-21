@@ -14,7 +14,6 @@ def rename_folders(dbParameters, traces_path, traces_folder_name):
             for view in viewfolderFile:
                 if os.path.exists(folderView):
                     if cardiacView == 'Aplax' and view == 'APLAX':
-                        # os.rename()
                         os.rename(os.path.join(folderView, view), os.path.join(folderView, cardiacView))
                     elif cardiacView == '4ch' and view == '4 Ch':
                         os.rename(os.path.join(folderView, view), os.path.join(folderView, cardiacView))

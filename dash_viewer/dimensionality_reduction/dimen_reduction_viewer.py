@@ -3,151 +3,196 @@ from dash import dcc, html, Input, Output, dash, State, callback, ctx
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-
 import dash_bootstrap_components as dbc
 from sklearn.preprocessing import StandardScaler
+
 from pattern_recognition.data.database_connection import sql_queries
 from pattern_recognition.data.insert_to_db.insertSpeqleDB import InsertInterpTracesToDB
 from pattern_recognition.data_preprocessing.speqle.concatenate_traces import CurveConcatenator
 from pattern_recognition.utils.parameters_dics import dbConParameters
 from pattern_recognition.data.database_connection.db_con import DatabaseConnection as dbcon
 from pattern_recognition.utils.plot_dics import segment_color_dict
-from pattern_recognition.data.SPEQLE_data.loadTracesSpeqle import LoadTracesSpeqle as load_traces_speqle
+from pattern_recognition.data.loadTraces import LoadTraces
+from dash_viewer.dimensionality_reduction.AutoencoderDm import calculate_autoencoder, \
+    reconstruct_traces_autoencoder
 from dash_viewer.dimensionality_reduction.pca_viewer import calculate_pca, reconstruct_traces_pca
 
-
-def safe_eval(val):
-    try:
-        return eval(val)
-    except Exception:
-        return val
-
-
 @callback(
-    Output('study_nr-dropdown_dr', 'options'),
-    Input('isImputed-id', 'value'),
-    State('study_nr-dropdown_dr', 'value'),
-    State('url', 'pathname')
+    [Output('study_nr-dropdown_dr', 'options')],
+    [Input('pca-button', 'n_clicks')],
+    [State('data-source-dropdown_dr', 'value'),
+     State('concat_traces_by-dropdown', 'value'),
+     State('url', 'pathname'),
+     State('id-slider-dm', 'value')]
 )
-def update_dropdown(isImputed, study_nr, pathname):
-    global instance_dm
-    instance_dm = DimensionalityRedViewer(pathname)
-    instance_dm.load_study_nr_dropdown(isImputed)
-    dropdown_options = [{'label': i, 'value': i} for i in instance_dm.study_nr]
-    return dropdown_options
+def update_dropdown_and_load_study_nrs(pca_btn, data_source, concat_traces_by, pathname, n_components):
+    dropdown_options = []
+    if "pca-button" == ctx.triggered_id and pca_btn > 0:
+        global instance_dm
+        data_source_mapping = {
+            'Speqle': 'speqle_segmentalStrainInterp_T',
+            'GE': 'st_segmentalStrainInterp_T',
+            'Philips': 'phi_segmentalStrainInterp_T',
+            'GE_Philips': ['phi_segmentalStrainInterp_T', 'st_segmentalStrainInterp_T']
+        }
+        if data_source in data_source_mapping:
+            table_name = data_source_mapping[data_source]
+        else:
+            table_name = None
+            raise ValueError("Invalid data source provided")
+
+        instance_dm = DimensionalityRedViewer(pathname)
+        instance_dm.data_source = data_source
+        instance_dm.table_name = table_name
+        instance_dm.load_study_nr_dropdown()
+        instance_dm.trigger_callbacks(concat_traces_by, n_components)
+        dropdown_options = [{'label': i, 'value': i} for i in instance_dm.study_nr]
+
+        return [dropdown_options]
+
+    return dash.no_update
+
 
 
 @callback(
     [Output('pca-graph', 'figure'),
      Output('origin_trace', 'figure')],
-    [Input('pca-button', 'n_clicks'),
-     Input('savetoDB-button', 'n_clicks'),
-     Input('study_nr-dropdown_dr', 'value')],
-    [State('concat_traces_by-dropdown', 'value'),
-     State('id-slider', 'value'),
-     State('url', 'pathname')]
+    [Input('study_nr-dropdown_dr', 'value')],
 )
-def update_pca_graph(pca_btn, insert_btn, study_nr, concat_traces_by, n_components, pathname):
-    if "pca-button" == ctx.triggered_id and pca_btn > 0:
-        fig_reconstructed, fig_original = instance_dm.trigger_callbacks(concat_traces_by, study_nr, n_components)
+def plot_traces_dm(study_nr):
+    if study_nr is not None:
+        n_components = instance_dm.n_components
+        reconstructed_df = instance_dm.DM_tracesDF[instance_dm.DM_tracesDF['study_nr'] ==
+                                                   study_nr].sort_values(by='id_position')
+
+        original_df = instance_dm.tracesDF[instance_dm.tracesDF['study_nr'] ==
+                                           study_nr].sort_values(by='id_position')
+
+        fig_original = plot_curve(original_df, study_nr, n_components, 'Interpolated',
+                                  instance_dm.pathname)
+        fig_reconstructed = plot_curve(reconstructed_df, study_nr, n_components, 'Reconstructed',
+                                       instance_dm.pathname)
+
         return fig_reconstructed, fig_original
-    # elif "savetoDB-button" == ctx.triggered_id and insert_btn > 0:
-    #     handle_db_click(pathname, concat_traces_by)
-    #     result = dash.no_update, dash.no_update
-    #     return dash.no_update
     else:
-        empty_figure = go.Figure()
-        return empty_figure, empty_figure
+        return go.Figure(), go.Figure()
 
 
 @callback(
     Output('id-data-txt', 'children'),
-    Input('isImputed-id', 'value'),
     Input('savetoDB-button', 'n_clicks'),
     [State('concat_traces_by-dropdown', 'value'),
      State('url', 'pathname')]
 )
-def handle_db_click(isImputed, insert_btn, concat_traces_by, data_type):
+def handle_db_click(insert_btn, concat_traces_by, data_type):
     if "savetoDB-button" == ctx.triggered_id and insert_btn > 0:
-        isImputed_value = 1 if isImputed else 0
         print('Saving to DB')
+        pathname = 1
         pca_result_df = pd.DataFrame()
         data_type = data_type.split('-')[-1]
 
-        # DeleteToDB('calculated_reconstructedTraces_T')
-        # DeleteToDB('calculated_pca_results_T')
-        # DeleteToDB('calculated_speqle_pca_T')
-
-        # UpdateTracesToDB('calculated_reconstructedTraces_T')
-        # UpdateTracesToDB('calculated_speqle_pca_T')
-        # UpdateTracesToDB('calculated_speqle_pca_T')
-
         recons_traces_df = instance_dm.DM_tracesDF
-        # recons_traces_df = recons_traces_df.drop(columns=['index'])
+        data_source = instance_dm.data_source
         recons_traces_df['strain_trace'] = recons_traces_df['strain_trace'].apply(
             lambda x: x.tolist() if isinstance(x, np.ndarray) else x)
 
+        recons_traces_df['isImputed'] = recons_traces_df['study_nr'].apply(
+            lambda x: 1 if x in instance_dm.study_nr_imputed else (0 if x in instance_dm.study_nr_original else None)
+        )
+
         recons_traces_df['study_type'] = 'BL'
-        recons_traces_df['reconstructed_type'] = (data_type + '-' + concat_traces_by +
-                                                  '-' + str(instance_dm.n_components) +
-                                                  '-' + str(isImputed_value))
+        recons_traces_df['reconstructed_type'] = recons_traces_df.apply(
+            lambda row: f"{data_type}-{concat_traces_by}-{instance_dm.n_components}-{row['isImputed']}", axis=1
+        )
+
+        recons_traces_df['n_components'] = instance_dm.n_components
+        recons_traces_df['data_source'] = data_source
 
         recons_traces_df = recons_traces_df.reset_index(drop=True)
 
+        new_column_order = ['study_nr', 'curve_segment', 'id_position', 'strain_trace', 'study_type',
+                            'reconstructed_type', 'n_components', 'isImputed', 'data_source']
+
+        recons_traces_df = recons_traces_df.reindex(columns=new_column_order)
+
         InsertInterpTracesToDB(recons_traces_df, 'calculated_reconstructedTraces_T', True)
 
-        # Insert values on  calculated_pca_results_T table
         unique_study_nr = instance_dm.DM_tracesDF['study_nr'].drop_duplicates()
 
-        data = []
-        for i, row in enumerate(instance_dm.pca_result):
-            row_string = np.array2string(row, separator=', ', precision=16, suppress_small=True)
-            data.append({'study_nr': unique_study_nr.values[i], '1': row_string})
+        if data_type == 'tab-PCA':
+            data = []
+            for i, row in enumerate(instance_dm.pca_result):
+                row_string = np.array2string(row, separator=', ', precision=16, suppress_small=True)
+                data.append({'study_nr': unique_study_nr.values[i], '1': row_string})
 
-        pca_result_df = pd.DataFrame(data)
-        pca_result_df['reconstructed_type'] = (data_type + '-' + concat_traces_by +
-                                               '-' + str(instance_dm.n_components) +
-                                               '-' + str(isImputed_value))
+            pca_result_df = pd.DataFrame(data)
+            pca_result_df['reconstructed_type'] = recons_traces_df['reconstructed_type'].iloc[0]
+            pca_result_df['n_components'] = instance_dm.n_components
+            pca_result_df['isImputed'] = recons_traces_df['isImputed'].iloc[0]
+            pca_result_df['data_source'] = data_source
 
-        pca_result_df = pca_result_df.reset_index(drop=True)
-        InsertInterpTracesToDB(pca_result_df, 'calculated_pca_results_T', False)
+            pca_result_df = pca_result_df.reset_index(drop=True)
+            InsertInterpTracesToDB(pca_result_df, 'calculated_pca_results_T', False)
 
-        components_str = np.array2string(instance_dm.pca_95_var.components_, separator=', ', precision=16,
-                                         suppress_small=True)
-        explained_variance_str = np.array2string(instance_dm.pca_95_var.explained_variance_, separator=', ',
-                                                 precision=16,
-                                                 suppress_small=True)
-        explained_variance_ratio_str = np.array2string(instance_dm.pca_95_var.explained_variance_ratio_, separator=', ',
-                                                       precision=16, suppress_small=True)
-        mean_str = np.array2string(instance_dm.pca_95_var.mean_, separator=', ', precision=16, suppress_small=True)
-        singular_values_str = np.array2string(instance_dm.pca_95_var.singular_values_, separator=', ', precision=16,
-                                              suppress_small=True)
+            components_str = np.array2string(instance_dm.pca_var_comp.components_, separator=', ', precision=16,
+                                             suppress_small=True)
 
-        pca_variance = {
-            'components_': components_str,
-            'explained_variance_': explained_variance_str,
-            'explained_variance_ratio_': explained_variance_ratio_str,
-            'mean_': mean_str,
-            'n_components_': instance_dm.pca_95_var.n_components_,
-            'n_features_': instance_dm.pca_95_var.n_features_in_,
-            'singular_values_': singular_values_str
-        }
-        pca_var_transformed = {key: value.tolist() if isinstance(value, np.ndarray) else [value] for key, value in
-                               pca_variance.items()}
+            explained_variance_str = np.array2string(instance_dm.pca_var_comp.explained_variance_, separator=', ',
+                                                     precision=16, suppress_small=True)
 
-        pca_var_df = pd.DataFrame(pca_var_transformed)
-        pca_var_df['reconstructed_type'] = (data_type + '-' + concat_traces_by +
-                                            '-' + str(instance_dm.n_components) +
-                                            '-' + str(isImputed_value))
-        pca_var_df = pca_var_df.reset_index(drop=True)
-        InsertInterpTracesToDB(pca_var_df, 'calculated_speqle_pca_T', True)
+            explained_variance_ratio_str = np.array2string(instance_dm.pca_var_comp.explained_variance_ratio_,
+                                                           separator=', ',
+                                                           precision=16, suppress_small=True)
+
+            mean_str = np.array2string(instance_dm.pca_var_comp.mean_, separator=', ', precision=16,
+                                       suppress_small=True)
+            singular_values_str = np.array2string(instance_dm.pca_var_comp.singular_values_, separator=', ',
+                                                  precision=16,
+                                                  suppress_small=True)
+
+            pca_variance = {
+                'components_': components_str,
+                'explained_variance_': explained_variance_str,
+                'explained_variance_ratio_': explained_variance_ratio_str,
+                'mean_': mean_str,
+                'n_components_': instance_dm.pca_var_comp.n_components_,
+                'n_features_': instance_dm.pca_var_comp.n_features_in_,
+                'singular_values_': singular_values_str
+            }
+            pca_var_transformed = {key: value.tolist() if isinstance(value, np.ndarray) else [value] for key, value in
+                                   pca_variance.items()}
+
+            pca_var_df = pd.DataFrame(pca_var_transformed)
+            pca_var_df['reconstructed_type'] = recons_traces_df['reconstructed_type'].iloc[0]
+            pca_var_df['n_components'] = instance_dm.n_components
+            pca_var_df['isImputed'] = recons_traces_df['isImputed'].iloc[0]
+            pca_var_df['data_source'] = data_source
+
+            pca_var_df = pca_var_df.reset_index(drop=True)
+            InsertInterpTracesToDB(pca_var_df, 'calculated_pca_params_T', True)
+
+        elif data_type == 'AutoencoderDm':
+            data = []
+            for i, row in enumerate(instance_dm.encoded_data):
+                row_string = np.array2string(row, separator=', ', precision=16, suppress_small=True)
+                data.append({'study_nr': unique_study_nr.values[i], '1': row_string})
+
+            autoencoder_result_df = pd.DataFrame(data)
+            autoencoder_result_df['reconstructed_type'] = recons_traces_df['reconstructed_type'].iloc[0]
+            autoencoder_result_df['encoding'] = instance_dm.n_components
+            autoencoder_result_df['isImputed'] = recons_traces_df['isImputed'].iloc[0]
+            autoencoder_result_df['data_source'] = data_source
+            autoencoder_result_df = autoencoder_result_df.reset_index(drop=True)
+
+            InsertInterpTracesToDB(autoencoder_result_df, 'calculated_dr_encoded_data_T', True)
+
         print('Saving completed....')
         txt_save = f' Inserting to DB completed'
         return txt_save
     return dash.no_update
 
 
-def plot_curve(trace, study_nr, n_components, traceType):
+def plot_curve(trace, study_nr, n_components, traceType, pathname):
     fig = go.Figure()
     title_str = ''
     trace = trace.reset_index(drop=True)
@@ -159,8 +204,12 @@ def plot_curve(trace, study_nr, n_components, traceType):
             curve = list(map(float, curve))
             title_str = f'{traceType} Strain Curve - Study {study_nr}'
         else:
-            title_str = (f'{traceType} Strain Curve - Study {study_nr} using {n_components} components of the '
-                         f'explained variance')
+            if pathname == '/tab-PCA':
+                title_str = (f'{traceType} Strain Curve -\n'
+                             f'Study {study_nr} using {n_components} components of the explained variance')
+            elif pathname == '/tab-AutoencoderDm':
+                title_str = (f'{traceType} Strain Curve -\n'
+                             f'Study {study_nr} using {n_components} epochs')
 
         fig.add_trace(go.Scatter(y=curve, mode='lines', name=segment_name,
                                  line=dict(color=segment_color_dict[segment_name]), ))
@@ -184,18 +233,42 @@ def load_table_db(view_name, column_name, operator, value):
         return None
 
 
+def process_strain_traces(combined_data):
+    def convert_to_array(x):
+        if '[' in x:
+            return np.array([float(i) for i in x.strip('[]').split(',')])
+        else:
+            return np.array([float(i) for i in x.split(',')])
+
+    strain_traces = combined_data['strain_trace'].apply(convert_to_array)
+    flattened_strain_traces = np.concatenate(strain_traces.values)
+    scaler = StandardScaler()
+    scaler.fit(flattened_strain_traces.reshape(-1, 1))
+    standardized_strain_traces = strain_traces.apply(
+        lambda x: scaler.transform(x.reshape(-1, 1)).flatten()
+    )
+
+    return standardized_strain_traces
+
+
 class DimensionalityRedViewer:
     def __init__(self, pathname):
+        self.trained_model = None
+        self.encoded_data = None
+        self.study_nr_imputed = None
+        self.study_nr_original = None
+        self.mean_model = None
         self.concat_echo_params = None
         self.df = None
+        self.data_source = None
+        self.table_name = None
         self.isImputed = None
         self.data_type = None
         self.pca_model = None
         self.studyType = 'BL'
-        # self.explained_var_list = []
         self.n_components = None
         self.pathname = pathname
-        self.array_curves, self.pca_result, self.pca_95_var, self.tracesDF = None, None, None, None
+        self.array_curves, self.pca_result, self.pca_var_comp, self.tracesDF = None, None, None, None
         self.explained_var_str, self.PCA_rec_tracesDF, self.reconstructed_tracesDF = None, None, None
         self.calculate_PCA, self.DM_tracesDF, self.array_curves, self.study_nr = None, None, None, None
         self.concat_traces_by, self.segment_tracesDF, self.concat_tracesDF, self.content = None, None, None, None
@@ -220,16 +293,32 @@ class DimensionalityRedViewer:
         # self.concat_echo_params = echo_paramsDF[['study_nr', 'concatenated']]
         pass
 
-    def load_study_nr_dropdown(self, isImputed):
-        self.isImputed = isImputed
-        speqle = load_traces_speqle
-        self.df = speqle(self.studyType, 'speqle_segmentalStrainInterp_T', self.isImputed)
-        max_length = self.df.tracesDF.groupby('study_nr').size().max()
-        dropna_tracesDF = self.df.tracesDF.dropna(subset=['strain_trace'])
-        dropna_tracesDF = dropna_tracesDF[
-            ~(dropna_tracesDF['strain_trace'].apply(lambda x: np.all(np.array(x) == 0)))]
-        self.tracesDF = dropna_tracesDF.groupby('study_nr').filter(lambda x: len(x) == max_length)
-        self.study_nr = self.tracesDF['study_nr'].unique()
+    def load_study_nr_dropdown(self):
+        if self.data_source != 'GE_Philips':
+            trace_loader = LoadTraces(self.studyType, self.table_name, self.isImputed, isComponents=True)
+            self.df, self.study_nr_imputed, self.study_nr_original = (
+                trace_loader.tracesDF, trace_loader.study_nr_imputed, trace_loader.study_nr_original)
+        else:
+            trace_loader1 = LoadTraces(self.studyType, self.table_name[0], self.isImputed, isComponents=True)
+            trace_loader2 = LoadTraces(self.studyType, self.table_name[1], self.isImputed, isComponents=True)
+            df1, study_nr_imputed1, study_nr_original1 = trace_loader1.tracesDF, trace_loader1.study_nr_imputed, trace_loader1.study_nr_original
+            df2, study_nr_imputed2, study_nr_original2 = trace_loader2.tracesDF, trace_loader2.study_nr_imputed, trace_loader2.study_nr_original
+
+            if df1 is not None and df2 is not None:
+                self.df = pd.concat([df1, df2], ignore_index=True)
+                self.study_nr_imputed = list(set(study_nr_imputed1 + study_nr_imputed2))
+                self.study_nr_original = list(set(study_nr_original1 + study_nr_original2))
+            else:
+                raise ValueError("Failed to load traces for GE_Philips data source")
+
+        self.df = self.df[~self.df['curve_segment'].str.lower().str.contains('apex', na=False)]
+        self.df['cardiac_view'] = self.df['cardiac_view'].str.lower()
+        self.df['segment_wall'] = self.df['segment_wall'].str.lower()
+        dropna_tracesDF = self.df.dropna(subset=['strain_trace'])
+        dropna_tracesDF = dropna_tracesDF[~dropna_tracesDF['strain_trace'].apply(lambda x: np.all(np.array(x) == 0))]
+        self.tracesDF = dropna_tracesDF.groupby('study_nr').filter(lambda x: len(x) == 18)
+        self.tracesDF = self.tracesDF.sort_values(by=['study_nr', 'id_position'])
+        self.study_nr = np.sort(self.tracesDF['study_nr'].unique())
 
     def load_pca_data(self):
         if self.concat_traces_by == 'full_traces' or self.concat_traces_by == 'full_traces_echo':
@@ -242,8 +331,6 @@ class DimensionalityRedViewer:
         self.concat_tracesDF = concatenated_strain.concatenate_traces_par()
         curve = self.concat_tracesDF['concatenated_trace'].tolist()
         self.array_curves = np.array(curve)
-        # if self.concat_traces_by == 'full_traces_echo':
-        #     self.concat_study_traces = self.concat_tracesDF[['study_nr', 'concatenated_trace']]
 
     def prepare_segment_traces(self):
         self.DM_tracesDF = pd.DataFrame()
@@ -253,6 +340,7 @@ class DimensionalityRedViewer:
         for curve_segment in unique_curve_segments:
             self.segment_tracesDF = self.tracesDF[
                 self.tracesDF['curve_segment'] == curve_segment].reset_index(drop=True)
+
             segment_trace = self.segment_tracesDF['strain_trace'].apply(ast.literal_eval)
             segment_trace = segment_trace.round(6)
             self.array_curves = np.array(segment_trace.tolist())
@@ -260,16 +348,18 @@ class DimensionalityRedViewer:
             if self.pathname == '/tab-PCA':
                 if self.concat_traces_by == 'segment_echo':
                     self.load_echo_params()
-                    # merged_st_echoParam_df = pd.merge(self.concat_echo_params, self.concat_study_traces, on='study_nr')
-                    # merged_st_echoParam_df['concatenated'] = merged_st_echoParam_df.apply(lambda row: ' '.join(row.values.astype(str)),
-                    #                                                      axis=1)
-                    pass
-
-                    self.pca_result, self.pca_95_var = calculate_pca(self.n_components, self.array_curves)
+                    self.pca_result, self.pca_var_comp = calculate_pca(self.n_components, self.array_curves)
+                    self.mean_model = np.mean(self.array_curves, axis=0)
                 else:
-                    self.pca_result, self.pca_95_var = calculate_pca(self.n_components, self.array_curves)
-            elif self.pathname == '/tab-Autoencoder':
-                pass
+                    self.pca_result, self.pca_var_comp = calculate_pca(self.n_components, self.array_curves)
+                    self.mean_model = np.mean(self.array_curves, axis=0)
+
+            elif self.pathname == '/tab-AutoencoderDm':
+                log_dir = "runs/autoencoder_experiment"
+                self.encoded_data, self.trained_model = calculate_autoencoder(encoding_dim=self.n_components,
+                                                                              array_curves=self.array_curves,
+                                                                              epochs=1000,
+                                                                              log_dir=log_dir)
 
             self.reconstruct_traces(curve_segment)
             self.DM_tracesDF = pd.concat([self.DM_tracesDF, self.PCA_rec_tracesDF], ignore_index=True)
@@ -281,9 +371,9 @@ class DimensionalityRedViewer:
         start = 0
         pca_traces = []
         if self.pathname == '/tab-PCA':
-            reconstructed_curves = reconstruct_traces_pca(self.pca_result, self.pca_95_var)
-        elif self.pathname == '/tab-Autoencoder':
-            pass
+            reconstructed_curves = reconstruct_traces_pca(self.pca_result, self.pca_var_comp)
+        elif self.pathname == '/tab-AutoencoderDm':
+            reconstructed_curves = reconstruct_traces_autoencoder(self.encoded_data, self.trained_model)
 
         rec_pca_curves = np.around(reconstructed_curves, decimals=6)
 
@@ -321,11 +411,25 @@ class DimensionalityRedViewer:
         return pca_traces
 
     def get_content(self):
-        return html.Div([
-            html.H3('PCA Computation'),
+        content = html.Div([
+            html.H3('Dimensionality Reduction'),
             dbc.Row([
-                # dbc.Col(
-                html.Label('Select PCA Concatenation Type:', style={'fontWeight': 'bold'}),
+                html.Br(),
+                dcc.Dropdown(
+                    id='data-source-dropdown_dr',
+                    options=[
+                        {'label': 'Speqle', 'value': 'Speqle'},
+                        {'label': 'GE', 'value': 'GE'},
+                        {'label': 'Philips', 'value': 'Philips'},
+                        {'label': 'GE + Philips', 'value': 'GE_Philips'}
+                    ],
+                    value='GE_Philips',
+                    style={'width': '300px'}
+                ),
+                html.Br(),
+                html.Br(),
+
+                html.Label('Select Concatenation Type:', style={'fontWeight': 'bold'}),
                 dcc.Dropdown(
                     id='concat_traces_by-dropdown',
                     options=[
@@ -336,40 +440,25 @@ class DimensionalityRedViewer:
                     style={'width': '400px', 'backgroundColor': 'white'}
                 ),
                 html.Br(),
-                html.Br(),
-                dbc.Checkbox(
-                    id='isImputed-id',
-                    label='Include imputed data',
-                    value=True,
-                    style={'marginLeft': '10px'}
-                ),
-                html.Br(),
-                html.Label('Select Study Number:', style={'fontWeight': 'bold'}),
-                dcc.Dropdown(
-                    id='study_nr-dropdown_dr',
-                    # options=[{'label': i, 'value': i} for i in self.study_nr],
 
-                    # value=self.study_nr[0] if self.study_nr.size > 0 else None,
-                    style={'width': '200px'}
-                )
             ]),
             html.Br(),
-            html.P("Explained variance:"),
-            dcc.Slider(
-                id='id-slider',
-                min=0, max=1, value=0.95,
-                step=0.05
-            ),
-
             html.Br(),
-
             html.Button(
-                'Perform PCA', id='pca-button', style={'width': '200px'}, n_clicks=0),
+                'Perform DR', id='pca-button', style={'width': '200px'}, n_clicks=0),
             html.Br(),
+            html.Label('Select Study Number:', style={'fontWeight': 'bold'}),
+            dcc.Dropdown(
+                id='study_nr-dropdown_dr',
+                style={'width': '200px'}
+            ),
+            html.Br(),
+
             dbc.Row([
+                dbc.Col(dcc.Graph(id='origin_trace'), width=6),
                 dbc.Col(dcc.Graph(id='pca-graph'), width=6),
-                dbc.Col(dcc.Graph(id='origin_trace'), width=6)
             ]), html.Br(),
+
             html.Button(
                 'Save', id='savetoDB-button', style={'width': '200px', 'marginLeft': '10px'}, n_clicks=0),
             html.Br(),
@@ -378,8 +467,24 @@ class DimensionalityRedViewer:
         ],
             style={'marginLeft': '20px'}
         )
+        if self.pathname == '/tab-PCA':
+            content.children.insert(3, html.P("Explained variance:"))
+            content.children.insert(4, dcc.Slider(
+                id='id-slider-dm',
+                min=0, max=1, value=0.95,
+                step=0.05
+            ))
+        elif self.pathname == '/tab-AutoencoderDm':
+            content.children.insert(3, html.P("Encoding Dimensions:"))
+            content.children.insert(4, dcc.Slider(
+                id='id-slider-dm',
+                min=2, max=100, value=100,
+                step=2
+            ))
 
-    def trigger_callbacks(self, concat_traces_by, study_nr, n_components):
+        return content
+
+    def trigger_callbacks(self, concat_traces_by, n_components):
         self.concat_traces_by = concat_traces_by
         self.n_components = n_components
         self.load_pca_data()
@@ -387,12 +492,9 @@ class DimensionalityRedViewer:
         if concat_traces_by == 'full_traces' or concat_traces_by == 'full_traces_echo':
             if self.pathname == '/tab-PCA':
                 self.data_type = 'PCA'
-                # self.explained_var_list = calculate_n_components_var(None, self.array_curves, self.concat_traces_by)
+
                 if concat_traces_by == 'full_traces_echo':
                     self.load_echo_params()
-                    # concat_traces = self.concat_echo_params['concatenated'].apply(safe_eval)
-
-                    # self.concat_tracesDF
                     merged_st_echoParam_df = pd.merge(self.concat_echo_params, self.concat_tracesDF, on='study_nr')
 
                     merged_st_echoParam_df['concatenated_all'] = merged_st_echoParam_df.apply(
@@ -400,21 +502,20 @@ class DimensionalityRedViewer:
 
                     curve = merged_st_echoParam_df['concatenated_all'].tolist()
                     array_curves = np.array(curve)
-                    # array_curves = np.array(curve).astype(float)
-                    self.pca_result, self.pca_95_var = calculate_pca(self.n_components, array_curves)
+
+                    self.pca_result, self.pca_var_comp = calculate_pca(self.n_components, array_curves)
+                    self.mean_model = np.mean(array_curves, axis=0)
                     pass
                 else:
-                    self.pca_result, self.pca_95_var = calculate_pca(self.n_components, self.array_curves)
+                    self.pca_result, self.pca_var_comp = calculate_pca(self.n_components, self.array_curves)
+                    self.mean_model = np.mean(self.array_curves, axis=0)
 
-            elif self.pathname == '/tab-Autoencoder':
-                self.data_type = 'Autoencoder'
-                # autoencoder = AutoencoderViewer(self.array_curves)
-                # autoencoder.calculate_autoencoder(encoding_dim=32)
-                # reconstructed_curves = autoencoder.reconstruct_traces()
+            elif self.pathname == '/tab-AutoencoderDm':
+                self.data_type = 'AutoencoderDm'
+                log_dir = "runs/autoencoder_experiment"
+                self.encoded_data, self.trained_model = calculate_autoencoder(encoding_dim=self.n_components,
+                                                                              array_curves=self.array_curves,
+                                                                              epochs=1000,
+                                                                              log_dir=log_dir)
+
             self.reconstruct_traces(self.n_components)
-
-        filtered_df = self.DM_tracesDF[self.DM_tracesDF['study_nr'] == study_nr]
-        original_df = self.tracesDF[self.tracesDF['study_nr'] == study_nr]
-        fig_reconstructed = plot_curve(filtered_df, study_nr, n_components, 'Reconstructed')
-        fig_original = plot_curve(original_df, study_nr, n_components, 'Interpolated')
-        return fig_reconstructed, fig_original

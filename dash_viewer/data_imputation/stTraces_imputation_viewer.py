@@ -1,5 +1,3 @@
-import ast
-import mpld3
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -9,32 +7,52 @@ import dash_bootstrap_components as dbcomp
 from dash import dcc, html, Input, Output, dash, callback, ctx
 from dash_viewer.data_imputation.load_dataTables import load_data_table_db
 from pattern_recognition.data_preprocessing.speqle.concatenate_traces import CurveConcatenator
-from pattern_recognition.data.insert_to_db.insertSpeqleDB import InsertInterpTracesToDB, DeleteToDBWhere
-from pattern_recognition.data.SPEQLE_data.loadTracesSpeqle import LoadTracesSpeqle as load_traces_speqle
+from pattern_recognition.data.insert_to_db.insertSpeqleDB import InsertInterpTracesToDB
+from pattern_recognition.data.loadTraces import LoadTraces as load_traces
 
 
 @callback(
-    [Output('study_nr_knn-dropdown', 'options')],
+    Output('study_nr_knn-dropdown', 'options'),
+    Output('error-message', 'children'),
     Input('textarea-k', 'value'),
-    Input('missing_traces_id', 'value')
+    Input('missing_traces_id', 'value'),
+    Input('data-source-dropdown_di', 'value')
 )
-def impute_traces(k_value, sample_n):
+def impute_traces(k_value, sample_n, data_source):
     global instance_imputation
     instance_imputation = DataImputationST()
     if k_value is not None:
         if sample_n is not None:
-            instance_imputation.load_data()
-            instance_imputation.missing_segments_finder(sample_n)
-            study_nr = instance_imputation.to_impute_tracesDF['study_nr'].unique()
-            dropdown_options = [study_nr]
-            concat_tracesDF = concatenate_traces(instance_imputation.tracesDF_18)
-            concat_imputedDF = concatenate_traces(instance_imputation.to_impute_tracesDF)
-            instance_imputation.impute_train(concat_tracesDF, concat_imputedDF, k_value)
-            instance_imputation.trace_reconstruction()
-            return dropdown_options
-        return dash.no_update
+            if data_source:
+                data_source_mapping = {
+                    'Speqle': 'speqle_segmentalStrainInterp_T',
+                    'GE': 'st_segmentalStrainInterp_T',
+                    'Philips': 'phi_segmentalStrainInterp_T',
+                    'GE_Philips': 'st_segmentalStrainInterp_T'
+                }
+                if data_source in data_source_mapping:
+                    table_name = data_source_mapping[data_source]
+                else:
+                    return dash.no_update, "Invalid data source provided"
+
+                instance_imputation.load_data(table_name)
+                instance_imputation.missing_segments_finder(sample_n, data_source)
+                study_nr = instance_imputation.to_impute_tracesDF['study_nr'].unique()
+                if len(study_nr) == 0:
+                    return dash.no_update, "No data found for the given parameters."
+                dropdown_options = [{'label': str(nr), 'value': nr} for nr in study_nr]
+                concat_tracesDF = concatenate_traces(instance_imputation.tracesDF_18)
+                if len(concat_tracesDF) == 0:
+                    return dash.no_update, "No data found with 18 segments."
+                concat_imputedDF = concatenate_traces(instance_imputation.to_impute_tracesDF)
+                instance_imputation.impute_train(concat_tracesDF, concat_imputedDF, k_value)
+                instance_imputation.trace_reconstruction()
+                return dropdown_options, ""
+            else:
+                return dash.no_update, "Please select a data source."
+        return dash.no_update, "Please select the number of missing segments."
     else:
-        return dash.no_update
+        return dash.no_update, "Please enter a value for K."
 
 
 @callback(
@@ -61,20 +79,33 @@ def plot_strain_traces(study_nr):
 
 
 @callback(
-    Output('data_text-id', 'children'),
-    Input('insert-db-button', 'n_clicks')
+    Output('data_text-id_di', 'children'),
+    Input('insert-db-button', 'n_clicks'),
+    Input('data-source-dropdown_di', 'value')
 )
-def insert_into_db(insert_btn):
-    if "insert-db-button" == ctx.triggered_id :
+def insert_into_db(insert_btn, data_source):
+    if "insert-db-button" == ctx.triggered_id:
+        if data_source:
+            data_source_mapping = {
+                'Speqle': 'speqle_segmentalStrainInterp_T',
+                'GE': 'st_segmentalStrainInterp_T',
+                'Philips': 'phi_segmentalStrainInterp_T',
+                'GE_Philips': 'st_segmentalStrainInterp_T'
+            }
+            if data_source in data_source_mapping:
+                table_name = data_source_mapping[data_source]
+            else:
+                table_name = None
+                raise ValueError("Invalid data source provided")
         tracesDF = instance_imputation.imputed_tracesDF
         imputed_tracesDF = tracesDF[tracesDF['isImputed'] == 1]
         if not imputed_tracesDF.empty:
-            # DeleteToDBWhere('speqle_segmentalStrainInterp_T', 'isImputed', 1)
-            InsertInterpTracesToDB(imputed_tracesDF, 'speqle_segmentalStrainInterp_T', True)
+            # DeleteToDBWhere(table_name, 'isImputed', 1)
+            InsertInterpTracesToDB(imputed_tracesDF, table_name, True)
     return dash.no_update
 
 
-def plot_missing_bulls_eye(missing_segments):
+def plot_missing_bulls_eye(missing_segments): # TODO show the red missing segments to the bullseye plot
     segments_18 = ['Basal Anterior', 'Basal Anteroseptal', 'Basal Inferoseptal',
                    'Basal Inferior', 'Basal Inferolateral', 'Basal Anterolateral',
                    'Mid Anterior', 'Mid Anteroseptal', 'Mid Inferoseptal',
@@ -93,11 +124,13 @@ def plot_missing_bulls_eye(missing_segments):
 def plot_traces(imputed_tracesDF, normal_tracesDF):
     fig = go.Figure()
     for idx, row in normal_tracesDF.iterrows():
-        fig.add_trace(go.Scatter(y=row['imputed_trace'],
+        y_values = [float(val) for val in row['imputed_trace'].split(',')]
+        fig.add_trace(go.Scatter(y=y_values,
                                  mode='lines', line=dict(color='silver'), name=row['curve_segment']))
 
     for idx, row in imputed_tracesDF.iterrows():
-        fig.add_trace(go.Scatter(y=row['imputed_trace'],
+        y_values = [float(val) for val in row['imputed_trace'].split(',')]
+        fig.add_trace(go.Scatter(y=y_values,
                                  mode='lines', line=dict(color='red', dash='dash'), name=row['curve_segment']))
 
     fig.update_layout(height=800, showlegend=True)
@@ -124,7 +157,7 @@ def replace_with_nan(strain_trace):
     return [np.nan] * len(strain_trace_list)
 
 
-def find_missing_segments(group, seg_values, cardiac_segmentsDF):
+def find_missing_segments(group, seg_values, cardiac_segmentsDF, data_source):
     present_segments = set(group['curve_segment'].str.strip())
     missing_segments = set(seg_values) - present_segments
     study_nr = group['study_nr'].iloc[0]
@@ -134,13 +167,18 @@ def find_missing_segments(group, seg_values, cardiac_segmentsDF):
     for segment in missing_segments:
         row = cardiac_segmentsDF.loc[cardiac_segmentsDF['segment_name'] == segment]
         if not row.empty:
+            if data_source != 'Speqle' and row['cardiac_view'].values[0] == '3CH':
+                cardiac_view_ = 'aplax'
+            else:
+                cardiac_view_ = row['cardiac_view'].values[0]
+
             row_dict = {'study_nr': study_nr,
-                        'segment_wall': row['seg_speqle'].values[0],
+                        'segment_wall': row['cardiac_wall'].values[0],
                         'curve_length': int(len(strain_trace)),
                         'curve_segment': segment,
                         'id_position': str(row['id_position'].values[0]),
                         'strain_trace': strain_trace,
-                        'cardiac_view': row['cardiac_view'].values[0],
+                        'cardiac_view': cardiac_view_,
                         'isImputed': 1,
                         'studyType': 'BL'}
             rows.append(row_dict)
@@ -167,15 +205,18 @@ class DataImputationST:
         self.study_type = 'BL'
 
     def select_data_with_rows_per_study_nr(self, num_rows):
+        self.tracesDF = self.tracesDF[~self.tracesDF['curve_segment'].str.lower().str.contains('apex', na=False)]
         counts = self.tracesDF.groupby('study_nr').size()
         study_nrs = counts[counts == num_rows].index
         filtered_df = self.tracesDF[self.tracesDF['study_nr'].isin(study_nrs)]
         return filtered_df
 
-    def load_data(self):
+    def load_data(self, table_name):
         self.cardiac_segmentsDF = load_data_table_db('config_cardiacSegments_T', False)
-        table_name = 'speqle_segmentalStrainInterp_T'
-        self.loaded_tracesDF = load_traces_speqle(self.study_type, table_name, None)
+        self.cardiac_segmentsDF = self.cardiac_segmentsDF[
+            ~self.cardiac_segmentsDF['segment_name'].str.lower().str.contains('apex', na=False)]
+
+        self.loaded_tracesDF = load_traces(self.study_type, table_name, 0, False)
         self.tracesDF = self.loaded_tracesDF.tracesDF.dropna(subset=['strain_trace'])
         self.tracesDF['id_position'] = self.tracesDF['id_position'].str.rstrip()
         self.tracesDF['curve_segment'] = self.tracesDF['curve_segment'].str.rstrip()#.str.lower()
@@ -185,11 +226,11 @@ class DataImputationST:
         for i in range(12, 19):
             setattr(self, f'tracesDF_{i}', self.select_data_with_rows_per_study_nr(i))
 
-    def missing_segments_finder(self, sample_n):
+    def missing_segments_finder(self, sample_n, data_source):
         dfs_to_concat = []
         segment_names = self.cardiac_segmentsDF
         seg_list = segment_names['segment_name'].tolist()
-
+        seg_list = [segment for segment in segment_names['segment_name'].tolist() if segment != 'Apex']
         if sample_n == 6:
             range_start, range_end = 12, 14
         elif sample_n == 3:
@@ -200,11 +241,10 @@ class DataImputationST:
             raise ValueError("Invalid sample_n value")
 
         for i in range(range_start, range_end):
-        # for i in range(12, 18):
             missing_segmentsDF = getattr(self, f'tracesDF_{i}')
 
             missing_segments_per_study = missing_segmentsDF.groupby('study_nr').apply(
-                lambda group: find_missing_segments(group, seg_list, segment_names))
+                lambda group: find_missing_segments(group, seg_list, segment_names, data_source))
             missing_segments_per_study = missing_segments_per_study.reset_index(drop=True)
             missing_segmentsDF = pd.concat([missing_segmentsDF, missing_segments_per_study], ignore_index=True)
             missing_segmentsDF = missing_segmentsDF.sort_values(by='study_nr').reset_index(drop=True)
@@ -233,13 +273,14 @@ class DataImputationST:
             for curve_len, curve_seg, id_seg, seg_wall, cardiac_view in zip(curve_length, curve_segment, id_segment,
                                                                             segments_wall, cardiac_views):
                 curve_segment = curve[start:start + int(curve_len)]
+                curve_segment_str = str(curve_segment).strip('[]')
                 imputed_traces.append({'study_nr': study_nr,
                                        'segment_wall': str(seg_wall),
                                        'curve_length': int(curve_len),
                                        'curve_segment': curve_seg,
                                        'id_position': int(id_seg),
-                                       'imputed_trace': curve_segment,
-                                       'cardiac_view': str(cardiac_view)})
+                                       'imputed_trace': curve_segment_str,
+                                       'cardiac_view': str(cardiac_view).lower()})
                 start += int(curve_len)
 
             imputed_tracesDF = pd.concat([imputed_tracesDF, pd.DataFrame(imputed_traces)], ignore_index=True)
@@ -265,6 +306,19 @@ class DataImputationST:
     def get_content(self):
         content = html.Div([
             dbcomp.Card([
+
+                dcc.Dropdown(
+                    id='data-source-dropdown_di',
+                    options=[
+                        {'label': 'Speqle', 'value': 'Speqle'},
+                        {'label': 'GE', 'value': 'GE'},
+                        {'label': 'Philips', 'value': 'Philips'}
+                        # {'label': 'GE + Philips', 'value': 'GE_Philips'}
+                    ],
+                    placeholder='Select Data Source',
+                    style={'width': '300px', 'marginLeft': '20px'}
+                ),
+
                 dbcomp.CardBody([
                     html.Br(),
                     dbcomp.Row([
@@ -288,8 +342,8 @@ class DataImputationST:
                                 id="textarea-k", type="number", debounce=True,
                                 style={'width': '100px', }),
                         ], width=4),
-                    ],style={'marginBottom': '20px'}),
-                    html.Div(),
+                    ], style={'marginBottom': '20px'}),
+                    html.Div(id='error-message', style={'color': 'red'}),
                     html.Br(),
                     html.Br(),
                     dbcomp.Row([
@@ -306,15 +360,23 @@ class DataImputationST:
 
                         dbcomp.Col([
                             html.P("Bulls Eye Plot", style={'fontWeight': 'bold'}),
-                            html.Iframe(srcDoc=None, id='id-bullseye-plot', style={'width': '100%', 'height': '700px'}),
+                            dcc.Loading(
+                                id="loading-bulls-eye",
+                                type="default",
+                                children=html.Iframe(srcDoc=None, id='id-bullseye-plot',
+                                                     style={'width': '100%', 'height': '700px'})
+                            ),
                         ], width=6),
 
                         html.Br(),
                         html.Br(),
                         dbcomp.Col([
                             html.P("Imputed Traces", style={'fontWeight': 'bold'}),
-                            dcc.Graph(id='id_tracer_plot'),
-
+                            dcc.Loading(
+                                id="loading-traces",
+                                type="default",
+                                children=dcc.Graph(id='id_tracer_plot')
+                            ),
                         ], width=6),
                     ]),
 
@@ -323,7 +385,7 @@ class DataImputationST:
                                       style={'padding': '10px', 'margin-bottom': '10px', 'width': '100px',
                                              'marginLeft': '10px'}),
                         html.Br(),
-                        html.Div(id='data_text-id', style={'display': 'none'}),
+                        html.Div(id='data_text-id_di', style={'display': 'none'}),
                     ]),
                 ]),
             ]),

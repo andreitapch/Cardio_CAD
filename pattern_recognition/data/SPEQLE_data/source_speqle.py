@@ -1,15 +1,10 @@
-import pandas as pd
-
 from pattern_recognition.utils.utils import event_loader
 from pattern_recognition.utils.parameters_dics import cardiac_events_order
 from pattern_recognition.utils.plot.trace_plotter import TracePlotter
-from pattern_recognition.ml_algorithms.calculate_PCA import PCAStrainTraces
 from pattern_recognition.data.SPEQLE_data.load_speqle_files import SpeqleFileLoader
 from pattern_recognition.data_preprocessing.speqle.temporalAligment import TemporalAlignment
-from pattern_recognition.data_preprocessing.speqle.concatenate_traces import CurveConcatenator
-from pattern_recognition.data_preprocessing.speqle.concatenate_segments import SegmentsConcatenator
 from pattern_recognition.utils.plot_dics import wall_color_dict, segment_color_dict, Cardiac_view_dict
-from pattern_recognition.data.SPEQLE_data.loadTracesSpeqle import LoadTracesSpeqle as load_traces_speqle
+from pattern_recognition.data.loadTraces import LoadTraces as load_traces
 
 
 class SpeqleDataProcessor:
@@ -35,12 +30,12 @@ class SpeqleDataProcessor:
     def plot_traces(self, table_name, isInterp, cardiac_eventT, isPCA):
         cardiac_evDF = None
         if cardiac_eventT is not None:
-            cardiac_eventDF = load_traces_speqle(self.studyType, cardiac_eventT,None)
+            cardiac_eventDF = load_traces(self.studyType, cardiac_eventT,None, False)
             cardiac_evDF, filtered_cardiac_ev = event_loader(
                 self.Cardiac_events_order, cardiac_eventDF.tracesDF, self.interpSelection)
 
         if not isPCA:
-            speqle_traces = load_traces_speqle(self.studyType, table_name, None)
+            speqle_traces = load_traces(self.studyType, table_name, None, False)
             tracesDF = speqle_traces.tracesDF
         else:
             tracesDF = self.reconstructed_traces
@@ -64,10 +59,10 @@ class SpeqleDataProcessor:
 
         # Align Strain Curves and interpolate
         if self.interp_traces_db:
-            seg_strain_tracesDF = load_traces_speqle(self.studyType, 'speqle_segmentalStrain_T', None)
-            seg_sr_tracesDF = load_traces_speqle(self.studyType, 'speqle_segmentalSr_T', None)
-            cardiac_eventDF = load_traces_speqle(self.studyType, 'speqle_cardiacEvent_T', None)
-            strain_tracesDF = load_traces_speqle(self.studyType, 'speqle_strainValues_T', None)
+            seg_strain_tracesDF = load_traces(self.studyType, 'speqle_segmentalStrain_T', None)
+            seg_sr_tracesDF = load_traces(self.studyType, 'speqle_segmentalSr_T', None)
+            cardiac_eventDF = load_traces(self.studyType, 'speqle_cardiacEvent_T', None)
+            strain_tracesDF = load_traces(self.studyType, 'speqle_strainValues_T', None)
 
             interp_strain = TemporalAlignment(cardiac_eventDF.tracesDF, seg_strain_tracesDF.tracesDF, seg_sr_tracesDF.tracesDF,
                                               strain_tracesDF.tracesDF, self.interpSelection)
@@ -80,7 +75,7 @@ class SpeqleDataProcessor:
 
         # # Calculate PCA
         # if self.calculate_pca:
-        #     seg_strain_interpDF = load_traces_speqle(self.studyType, 'speqle_segmentalStrainInterp_T', None)
+        #     seg_strain_interpDF = load_traces(self.studyType, 'speqle_segmentalStrainInterp_T', None)
         #     if self.concat_traces_by == 'full_traces':
         #         concatenated_strain = CurveConcatenator(seg_strain_interpDF.tracesDF, isReconstructed=False)
         #         self.tracesDF = concatenated_strain.concatenate_traces()

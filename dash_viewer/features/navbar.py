@@ -26,6 +26,7 @@ def create_navbar():
                         dbc.NavItem(dbc.NavLink("Remodeling Data", href='/tab-Remodeling')),
                         dbc.NavItem(dbc.NavLink("Remodeling with Strain Traces", href='/tab-dfMerger')),
                         dbc.NavItem(dbc.NavLink("Temporal Alignment", href='/tab-TempAlignment')),
+                        dbc.NavItem(dbc.NavLink("Patient Viewer", href='/tab-PatViewer')),
                         dbc.DropdownMenu(
                             [
                                 dbc.DropdownMenuItem("Find the best K", href='/tab-bestK'),
@@ -39,7 +40,7 @@ def create_navbar():
                         dbc.DropdownMenu(
                             [
                                 dbc.DropdownMenuItem("PCA", href='/tab-PCA'),
-                                dbc.DropdownMenuItem("Autoencoder", href='/tab-Autoencoder'),#TODO
+                                dbc.DropdownMenuItem("Autoencoder", href='/tab-AutoencoderDm'),#TODO
                                 dbc.DropdownMenuItem("Comparison", href='/tab-Comparison'),#TODO
                             ],
                             nav=True,
@@ -48,13 +49,18 @@ def create_navbar():
                         ),
                         dbc.DropdownMenu(
                             [
-                                dbc.DropdownMenuItem("Find best class Params", href='/tab-best_class'),
-                                dbc.DropdownMenuItem("KNN classifier", href='/tab-KNN_class'),
-                                dbc.DropdownMenuItem("RF classifier", href='/tab-RF_class'),
-                                dbc.DropdownMenuItem("SVM classifier", href='/tab-SVM_class'),
-                                dbc.DropdownMenuItem("gb classifier", href='/tab-GB_class'),
-                                dbc.DropdownMenuItem("xgboost classifier", href='/tab-GBOOST_class'),
-                                dbc.DropdownMenuItem("Autoencoder classifier", href='/tab-autoencoder_class'),
+                                dbc.DropdownMenuItem("Find best class Params: PCA", href='/tab-best_class'),
+                                dbc.DropdownMenuItem("Find best class Params: VAC", href='/tab-best_vac_class'),
+                                dbc.DropdownMenuItem("Find Echo Params: ", href='/tab-bestEchoParam_class'),
+                                dbc.DropdownMenuItem("Classify Ste & Echo Params: ", href='/tab-bestSteEcho_class'),
+                                # dbc.DropdownMenuItem("KNN classifier", href='/tab-KNN_class'),
+                                # dbc.DropdownMenuItem("Decision Tree  classifier", href='/tab-DT_class'),
+                                # dbc.DropdownMenuItem("RF classifier", href='/tab-RF_class'),
+                                # dbc.DropdownMenuItem("SVM classifier", href='/tab-SVM_class'),
+                                # dbc.DropdownMenuItem("gb classifier", href='/tab-GB_class'),
+                                # dbc.DropdownMenuItem("Catboost classifier", href='/tab-CatBoost_class'),
+                                # dbc.DropdownMenuItem("xgboost classifier", href='/tab-XGB_class'),
+                                # dbc.DropdownMenuItem("AutoencoderDm classifier", href='/tab-autoencoder_class'),
                             ],
                             nav=True,
                             in_navbar=True,

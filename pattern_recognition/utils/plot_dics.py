@@ -16,20 +16,46 @@ segment_color_dict = {
     'apSept': 'maroon',
     'apInf': 'lime',
     'apPost': 'teal',
-    'apLat': 'aqua'
+    'apLat': 'aqua',
+
+    'basant': 'blue',
+    'basantsept': 'green',
+    'bassept': 'red',
+    'basinf': 'indianred',
+    'baspost': 'magenta',
+    'baslat': 'darkturquoise',
+    'midant': 'black',
+    'midantsept': 'purple',
+    'midsept': 'orange',
+    'midinf': 'pink',
+    'midpost': 'brown',
+    'midlat': 'chocolate',
+    'apant': 'olive',
+    'apantsept': 'navy',
+    'apsept': 'maroon',
+    'apinf': 'lime',
+    'apost': 'teal',
+    'aplat': 'aqua'
 }
 
 wall_color_dict = {
     'antlat': 'blue',
+    'anterolateral': 'blue',
     'ant': 'green',
+    'anterior': 'green',
     'antsept': 'red',
+    'anteroseptal': 'red',
     'infsept': 'darkturquoise',
+    'inferoseptal': 'darkturquoise',
     'inf': 'magenta',
-    'inflat': 'purple'
+    'inferior': 'magenta',
+    'inflat': 'purple',
+    'inferolateral': 'purple'
 }
 
 Cardiac_view_dict = {
-    '2CH': 'blue',
-    '3CH': 'green',
-    '4CH': 'red'
+    '2ch': 'blue',
+    '3ch': 'green',
+    'aplax': 'green',
+    '4ch': 'red'
 }

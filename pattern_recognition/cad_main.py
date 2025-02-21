@@ -3,11 +3,11 @@ from pattern_recognition.data.SPEQLE_data.source_speqle import SpeqleDataProcess
 from pattern_recognition.data.speckle_tracking.source_speckle_tracking import SpeckleTrackingProcessor
 
 studyType = 'BL'
-interpSelection = 'avg' # 'avg' OR 'max'
-concat_traces_by = 'segment'  # 'full_traces' OR 'segment'
-selected_source_data = 'SPEQLE'  # 'SPEQLE' OR 'ST'
+interpSelection = 'max' # 'avg' OR 'max'
+concat_traces_by = 'full_traces'  # 'full_traces' OR 'segment'
+selected_source_data = 'Philips'  # 'SPEQLE' OR 1 'ST' OR 2 'Philips' as interp is based on GE
 read_traces = True
-interp_traces_db = False
+interp_traces_db = True
 calculate_pca = False
 plot_curves = False
 plot_interp_curves = False
@@ -17,7 +17,12 @@ plot_PCA_curves = False
 def main_process():
     global speqle_processor
     if selected_source_data == 'ST':
-        SpeckleTrackingProcessor()
+        speqle_processor = SpeckleTrackingProcessor(studyType, selected_source_data, concat_traces_by, interpSelection, read_traces, interp_traces_db)
+        speqle_processor.process()
+    elif selected_source_data == 'Philips':
+        speqle_processor = SpeckleTrackingProcessor(studyType, selected_source_data, concat_traces_by, interpSelection,
+                                                    read_traces, interp_traces_db)
+        speqle_processor.process()
     elif selected_source_data == 'SPEQLE':
         speqle_processor = SpeqleDataProcessor(studyType, concat_traces_by, interpSelection, read_traces, plot_curves,
                                                interp_traces_db, plot_interp_curves, calculate_pca, plot_PCA_curves)
