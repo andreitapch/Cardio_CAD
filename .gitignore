@@ -3,3 +3,10 @@ __pycache__/
 
 
 pattern_recognition/plots/
+
+# Hugging Face / Transformers caches and weights
+**/models--*/
+**/snapshots/
+**/*.safetensors
+**/*.bin
+**/.cache/
