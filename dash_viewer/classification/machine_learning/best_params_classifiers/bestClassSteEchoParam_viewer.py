@@ -6,20 +6,15 @@ import pandas as pd
 import dash_bootstrap_components as dash_bc
 from dash import html, dcc, Output, Input, ctx
 from dash import callback, State, dash, dash_table
-from sklearn.preprocessing import StandardScaler
-
-from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import precision_recall_curve, auc
-from sklearn.ensemble import RandomForestClassifier
 
 
 from dash_viewer.classification.load_prepare_data import get_concat_18_segments, select_data_type, \
-    load_segment_table_db,  get_feature_components, get_echoParams_data
+    load_queries_table_db,  get_feature_components, get_echoParams_data
 
 
 from dash_viewer.classification.machine_learning.utils_classifier import get_confusion_matrix_table, \
-    find_best_class_params, convert_echoParam_values, impute_missing_values, load_data_traces, preprocess_data, \
-    load_selected_features, evaluate_feature_subset
+    find_best_class_params, convert_echoParam_values, preprocess_data, \
+    load_selected_features
 
 gc.enable()
 
@@ -64,6 +59,7 @@ def update_output(isImputed, best_neighbors, data_source, unbalanced_type, encod
 
                 gc.collect()
                 return param_table, test_metrics_table, cm_table
+            return None
         else:
             table_name = None
             return dash.no_update, dash.no_update, dash.no_update
@@ -101,7 +97,8 @@ def best_params_table(orig_concat_tracesDF, orig_feature_col_name,
         columns=[{'name': i, 'id': i} for i in test_metrics_df.columns],
         style_cell={'textAlign': 'left'},
     )
-    cm_table_fig = get_confusion_matrix_table(cm)
+    cm_table_fig = get_confusion_matrix_table(cm) if cm is not None else None
+
 
     return best_param, best_param_table, test_metrics_table, cm_table_fig
 
@@ -110,7 +107,7 @@ def load_traces_df(dataOrig_type, isImputed, unbalanced_type, class_type, data_s
     imp_concat_tracesDF, orig_concat_tracesDF,echoParam_feat = None, None, None
     filter_by_type = select_data_type(dataOrig_type, encoding)
 
-    tracesDF = load_segment_table_db('pca_results_view','data_source', 'in', [data_source])
+    tracesDF = load_queries_table_db('pca_results_view', 'data_source', 'in', [data_source])
     filtered_tracesDF = tracesDF[tracesDF['reconstructed_type'].str.contains(filter_by_type, na=False)]
 
     echoParam_tracesDF, feature_col_name = get_echoParams_data(filtered_tracesDF, data_source, None)
@@ -118,7 +115,7 @@ def load_traces_df(dataOrig_type, isImputed, unbalanced_type, class_type, data_s
 
     if tracesDF is not None and echoParam_tracesDF is not None:
 
-        X_orig, y_orig, patient_study_info = preprocess_data(echoParam_tracesDF)
+        X_orig, y,patient_study_info, scaler = preprocess_data(echoParam_tracesDF, True)
         featuresDF, unique_features_list = load_selected_features()
         X_filtered = X_orig.loc[:, [col for col in X_orig.columns if col in unique_features_list]]
 
@@ -142,21 +139,21 @@ def load_traces_df(dataOrig_type, isImputed, unbalanced_type, class_type, data_s
         feature_col_name = 'encoded_data'
         orig_concat_tracesDF, orig_feature_col_name = get_feature_components(original_tracesDF, data_source,
                                                                              filter_by_type, feature_col_name,
-                                                                             table_name)
+                                                                             table_name,False)
         if imputed_tracesDF is not None:
             imp_concat_tracesDF, imp_feature_col_name = get_feature_components(imputed_tracesDF, data_source,
                                                                                filter_by_type, feature_col_name,
-                                                                               table_name)
+                                                                               table_name,True)
 
     orig_merged_df = orig_concat_tracesDF.merge(echoParam_feat, on='study_nr', how='left', suffixes=('_orig', '_echo'))
     imp_merged_df = imp_concat_tracesDF.merge(echoParam_feat, on='study_nr', how='left', suffixes=('_orig', '_echo'))
-
+    features = None
 
     best_param, param_table, test_metrics_table, cm_table_fig = best_params_table(orig_merged_df,
                                                                                   orig_feature_col_name,
                                                                                   imp_merged_df,
                                                                                   imp_feature_col_name,
-                                                                                  unbalanced_type, class_type)
+                                                                                  unbalanced_type, class_type, features)
     return param_table, test_metrics_table, cm_table_fig
 
 
@@ -186,8 +183,8 @@ class BestClassSteEchoParamViewer:
             {'label': 'Reconstructed traces', 'value': 'reconstructed_traces_vac'},
             {'label': '18 Segments Encoded', 'value': '18_segments_vac'},
             {'label': 'Per Segments Encoded', 'value': 'per_segment_vac'},
-            # {'label': 'Echo-parameters', 'value': 'echo-params_vac'},
-            # {'label': 'GLS', 'value': 'gls_remod_class_vac'}
+            {'label': 'Echo-parameters', 'value': 'echo-params_vac'},
+            {'label': 'GLS', 'value': 'gls_params_vac'}
         ]
 
         return html.Div([
@@ -216,7 +213,7 @@ class BestClassSteEchoParamViewer:
                         dash_bc.Checkbox(
                             id='isDataImputed-id-steEcho',
                             label='Include imputed data',
-                            value=True,
+                            value=False,
                             style={'marginLeft': '30px', 'width': '90%'}
                         ),
                     ]),

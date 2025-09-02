@@ -1,4 +1,6 @@
 import ast
+import json
+
 from dash import dcc, html, Input, Output, dash, State, callback, ctx
 import numpy as np
 import pandas as pd
@@ -57,11 +59,16 @@ def update_dropdown_and_load_study_nrs(pca_btn, data_source, concat_traces_by, p
 @callback(
     [Output('pca-graph', 'figure'),
      Output('origin_trace', 'figure')],
-    [Input('study_nr-dropdown_dr', 'value')],
+    [Input('study_nr-dropdown_dr', 'value'),
+    State('url', 'pathname')]
 )
-def plot_traces_dm(study_nr):
+def plot_traces_dm(study_nr, data_type):
     if study_nr is not None:
-        n_components = instance_dm.n_components
+        data_type = data_type.split('-')[-1]
+        if data_type == 'PCA':
+            n_components = instance_dm.n_components_used
+        else:
+            n_components = instance_dm.n_components
         reconstructed_df = instance_dm.DM_tracesDF[instance_dm.DM_tracesDF['study_nr'] ==
                                                    study_nr].sort_values(by='id_position')
 
@@ -85,106 +92,105 @@ def plot_traces_dm(study_nr):
      State('url', 'pathname')]
 )
 def handle_db_click(insert_btn, concat_traces_by, data_type):
+
     if "savetoDB-button" == ctx.triggered_id and insert_btn > 0:
         print('Saving to DB')
         pathname = 1
         pca_result_df = pd.DataFrame()
         data_type = data_type.split('-')[-1]
-
-        recons_traces_df = instance_dm.DM_tracesDF
+        recons_traces_df = instance_dm.DM_tracesDF.copy()
         data_source = instance_dm.data_source
+        if data_type == 'PCA':
+            n_components = instance_dm.n_components_used
+        else:
+            n_components = instance_dm.n_components
         recons_traces_df['strain_trace'] = recons_traces_df['strain_trace'].apply(
-            lambda x: x.tolist() if isinstance(x, np.ndarray) else x)
-
+            lambda x: x.tolist() if isinstance(x, np.ndarray) else x
+        )
         recons_traces_df['isImputed'] = recons_traces_df['study_nr'].apply(
             lambda x: 1 if x in instance_dm.study_nr_imputed else (0 if x in instance_dm.study_nr_original else None)
         )
-
         recons_traces_df['study_type'] = 'BL'
         recons_traces_df['reconstructed_type'] = recons_traces_df.apply(
-            lambda row: f"{data_type}-{concat_traces_by}-{instance_dm.n_components}-{row['isImputed']}", axis=1
+            lambda
+                row: f"{data_type}-{concat_traces_by}-{n_components}-{1 if row['isImputed'] == 1 else 0}",
+            axis=1
         )
 
-        recons_traces_df['n_components'] = instance_dm.n_components
+        recons_traces_df['n_components'] = n_components
         recons_traces_df['data_source'] = data_source
-
         recons_traces_df = recons_traces_df.reset_index(drop=True)
-
-        new_column_order = ['study_nr', 'curve_segment', 'id_position', 'strain_trace', 'study_type',
-                            'reconstructed_type', 'n_components', 'isImputed', 'data_source']
-
-        recons_traces_df = recons_traces_df.reindex(columns=new_column_order)
-
+        new_column_order = [
+            'study_nr', 'curve_segment', 'id_position', 'strain_trace', 'study_type',
+            'reconstructed_type', 'n_components', 'isImputed', 'data_source'
+        ]
+        recons_traces_df = recons_traces_df[new_column_order]
         InsertInterpTracesToDB(recons_traces_df, 'calculated_reconstructedTraces_T', True)
 
         unique_study_nr = instance_dm.DM_tracesDF['study_nr'].drop_duplicates()
 
-        if data_type == 'tab-PCA':
+        if data_type == 'PCA':
+            recons_traces_df = recons_traces_df.drop_duplicates(subset='study_nr', keep='first')
+            mapping_series_recon = recons_traces_df.set_index('study_nr')['reconstructed_type']
+            mapping_series_isImp = recons_traces_df.set_index('study_nr')['isImputed']
+
             data = []
             for i, row in enumerate(instance_dm.pca_result):
-                row_string = np.array2string(row, separator=', ', precision=16, suppress_small=True)
-                data.append({'study_nr': unique_study_nr.values[i], '1': row_string})
+                row_json = json.dumps(row.tolist())
+                data.append({
+                    'study_nr': unique_study_nr.values[i],
+                    'pca_results': row_json,
+                    'reconstructed_type': mapping_series_recon.get(unique_study_nr.values[i], 'Unknown'),
+                    'n_components': n_components,
+                    'isImputed': mapping_series_isImp.get(unique_study_nr.values[i], False),
+                    'data_source': data_source
+                })
 
             pca_result_df = pd.DataFrame(data)
-            pca_result_df['reconstructed_type'] = recons_traces_df['reconstructed_type'].iloc[0]
-            pca_result_df['n_components'] = instance_dm.n_components
-            pca_result_df['isImputed'] = recons_traces_df['isImputed'].iloc[0]
-            pca_result_df['data_source'] = data_source
-
-            pca_result_df = pca_result_df.reset_index(drop=True)
             InsertInterpTracesToDB(pca_result_df, 'calculated_pca_results_T', False)
 
-            components_str = np.array2string(instance_dm.pca_var_comp.components_, separator=', ', precision=16,
-                                             suppress_small=True)
+            pca_model = instance_dm.pca_var_comp
 
-            explained_variance_str = np.array2string(instance_dm.pca_var_comp.explained_variance_, separator=', ',
-                                                     precision=16, suppress_small=True)
-
-            explained_variance_ratio_str = np.array2string(instance_dm.pca_var_comp.explained_variance_ratio_,
-                                                           separator=', ',
-                                                           precision=16, suppress_small=True)
-
-            mean_str = np.array2string(instance_dm.pca_var_comp.mean_, separator=', ', precision=16,
-                                       suppress_small=True)
-            singular_values_str = np.array2string(instance_dm.pca_var_comp.singular_values_, separator=', ',
-                                                  precision=16,
-                                                  suppress_small=True)
-
-            pca_variance = {
-                'components_': components_str,
-                'explained_variance_': explained_variance_str,
-                'explained_variance_ratio_': explained_variance_ratio_str,
-                'mean_': mean_str,
-                'n_components_': instance_dm.pca_var_comp.n_components_,
-                'n_features_': instance_dm.pca_var_comp.n_features_in_,
-                'singular_values_': singular_values_str
+            pca_params = {
+                'components_': json.dumps(pca_model.components_.tolist()),
+                'explained_variance_': json.dumps(pca_model.explained_variance_.tolist()),
+                'explained_variance_ratio_': json.dumps(pca_model.explained_variance_ratio_.tolist()),
+                # Variance % per PC
+                'mean_': json.dumps(pca_model.mean_.tolist()),
+                'n_components_': pca_model.n_components_,
+                'n_features_': pca_model.n_features_in_,
+                'singular_values_': json.dumps(pca_model.singular_values_.tolist()),
+                # Singular values (importance of PCs)
+                'reconstructed_type': concat_traces_by,
+                'n_components': n_components,
+                'isImputed': 0.1,
+                'data_source': data_source
+                # 'curve_segment': json.dumps(segment_names),
+                # 'id_position': json.dumps(segment_ids)
             }
-            pca_var_transformed = {key: value.tolist() if isinstance(value, np.ndarray) else [value] for key, value in
-                                   pca_variance.items()}
 
-            pca_var_df = pd.DataFrame(pca_var_transformed)
-            pca_var_df['reconstructed_type'] = recons_traces_df['reconstructed_type'].iloc[0]
-            pca_var_df['n_components'] = instance_dm.n_components
-            pca_var_df['isImputed'] = recons_traces_df['isImputed'].iloc[0]
-            pca_var_df['data_source'] = data_source
-
-            pca_var_df = pca_var_df.reset_index(drop=True)
+            pca_var_df = pd.DataFrame([pca_params])
             InsertInterpTracesToDB(pca_var_df, 'calculated_pca_params_T', True)
 
         elif data_type == 'AutoencoderDm':
+            recons_traces_df = recons_traces_df.drop_duplicates(subset='study_nr', keep='first')
+            mapping_series_recon = recons_traces_df.set_index('study_nr')['reconstructed_type']
+            mapping_series_isImp = recons_traces_df.set_index('study_nr')['isImputed']
+
             data = []
             for i, row in enumerate(instance_dm.encoded_data):
-                row_string = np.array2string(row, separator=', ', precision=16, suppress_small=True)
-                data.append({'study_nr': unique_study_nr.values[i], '1': row_string})
+                row_json = json.dumps(row.tolist())
+                data.append({
+                    'study_nr': unique_study_nr.values[i],
+                    'encoded_vector': row_json,
+                    'reconstructed_type': mapping_series_recon.get(unique_study_nr.values[i], 'Unknown'),
+                    'encoding': n_components,
+                    'isImputed': mapping_series_isImp.get(unique_study_nr.values[i], False),
+                    'data_source': data_source
+                })
 
             autoencoder_result_df = pd.DataFrame(data)
-            autoencoder_result_df['reconstructed_type'] = recons_traces_df['reconstructed_type'].iloc[0]
-            autoencoder_result_df['encoding'] = instance_dm.n_components
-            autoencoder_result_df['isImputed'] = recons_traces_df['isImputed'].iloc[0]
-            autoencoder_result_df['data_source'] = data_source
-            autoencoder_result_df = autoencoder_result_df.reset_index(drop=True)
-
-            InsertInterpTracesToDB(autoencoder_result_df, 'calculated_dr_encoded_data_T', True)
+            # InsertInterpTracesToDB(autoencoder_result_df, 'calculated_dr_encoded_data_T', True)
 
         print('Saving completed....')
         txt_save = f' Inserting to DB completed'
@@ -233,26 +239,27 @@ def load_table_db(view_name, column_name, operator, value):
         return None
 
 
-def process_strain_traces(combined_data):
-    def convert_to_array(x):
-        if '[' in x:
-            return np.array([float(i) for i in x.strip('[]').split(',')])
-        else:
-            return np.array([float(i) for i in x.split(',')])
-
-    strain_traces = combined_data['strain_trace'].apply(convert_to_array)
-    flattened_strain_traces = np.concatenate(strain_traces.values)
-    scaler = StandardScaler()
-    scaler.fit(flattened_strain_traces.reshape(-1, 1))
-    standardized_strain_traces = strain_traces.apply(
-        lambda x: scaler.transform(x.reshape(-1, 1)).flatten()
-    )
-
-    return standardized_strain_traces
+# def process_strain_traces(combined_data):
+#     def convert_to_array(x):
+#         if '[' in x:
+#             return np.array([float(i) for i in x.strip('[]').split(',')])
+#         else:
+#             return np.array([float(i) for i in x.split(',')])
+#
+#     strain_traces = combined_data['strain_trace'].apply(convert_to_array)
+#     flattened_strain_traces = np.concatenate(strain_traces.values)
+#     scaler = StandardScaler()
+#     scaler.fit(flattened_strain_traces.reshape(-1, 1))
+#     standardized_strain_traces = strain_traces.apply(
+#         lambda x: scaler.transform(x.reshape(-1, 1)).flatten()
+#     )
+#
+#     return standardized_strain_traces
 
 
 class DimensionalityRedViewer:
     def __init__(self, pathname):
+        self.n_components_used = None
         self.trained_model = None
         self.encoded_data = None
         self.study_nr_imputed = None
@@ -313,7 +320,7 @@ class DimensionalityRedViewer:
 
         self.df = self.df[~self.df['curve_segment'].str.lower().str.contains('apex', na=False)]
         self.df['cardiac_view'] = self.df['cardiac_view'].str.lower()
-        self.df['segment_wall'] = self.df['segment_wall'].str.lower()
+        self.df['segment_wall'] = self.df['segment_wall'].str.lower().str.strip() # .str.lower() changed on 07/08/2025
         dropna_tracesDF = self.df.dropna(subset=['strain_trace'])
         dropna_tracesDF = dropna_tracesDF[~dropna_tracesDF['strain_trace'].apply(lambda x: np.all(np.array(x) == 0))]
         self.tracesDF = dropna_tracesDF.groupby('study_nr').filter(lambda x: len(x) == 18)
@@ -348,10 +355,10 @@ class DimensionalityRedViewer:
             if self.pathname == '/tab-PCA':
                 if self.concat_traces_by == 'segment_echo':
                     self.load_echo_params()
-                    self.pca_result, self.pca_var_comp = calculate_pca(self.n_components, self.array_curves)
+                    self.pca_result, self.pca_var_comp ,self.n_components_used = calculate_pca(self.n_components, self.array_curves)
                     self.mean_model = np.mean(self.array_curves, axis=0)
                 else:
-                    self.pca_result, self.pca_var_comp = calculate_pca(self.n_components, self.array_curves)
+                    self.pca_result, self.pca_var_comp,self.n_components_used = calculate_pca(self.n_components, self.array_curves)
                     self.mean_model = np.mean(self.array_curves, axis=0)
 
             elif self.pathname == '/tab-AutoencoderDm':
@@ -468,17 +475,33 @@ class DimensionalityRedViewer:
             style={'marginLeft': '20px'}
         )
         if self.pathname == '/tab-PCA':
-            content.children.insert(3, html.P("Explained variance:"))
+            # content.children.insert(3, html.P("Explained variance:"))
+            content.children.insert(3, html.P("Number of Components:"))
             content.children.insert(4, dcc.Slider(
                 id='id-slider-dm',
-                min=0, max=1, value=0.95,
-                step=0.05
+                min=0,
+                max=100,
+                value=3,
+                step=1,
+                marks={
+                    0: {'label': 'Optimal', 'style': {'color': '#777', 'font-weight': 'bold'}},
+                    100: {'label': 'Maximum', 'style': {'color': '#0074D9', 'font-weight': 'bold'}}
+                },
+                tooltip={"placement": "bottom", "always_visible": True}
             ))
+
+            # content.children.insert(4, dcc.Slider(
+            #     id='id-slider-dm',
+            #     min=0, max=60, value=59,
+            #     step=1
+            #     # min=0, max=1, value=0.95,
+            #     # step=0.05
+            # ))
         elif self.pathname == '/tab-AutoencoderDm':
             content.children.insert(3, html.P("Encoding Dimensions:"))
             content.children.insert(4, dcc.Slider(
                 id='id-slider-dm',
-                min=2, max=100, value=100,
+                min=2, max=64, value=64,
                 step=2
             ))
 
@@ -503,11 +526,11 @@ class DimensionalityRedViewer:
                     curve = merged_st_echoParam_df['concatenated_all'].tolist()
                     array_curves = np.array(curve)
 
-                    self.pca_result, self.pca_var_comp = calculate_pca(self.n_components, array_curves)
+                    self.pca_result, self.pca_var_comp,self.n_components_used = calculate_pca(self.n_components, array_curves)
                     self.mean_model = np.mean(array_curves, axis=0)
                     pass
                 else:
-                    self.pca_result, self.pca_var_comp = calculate_pca(self.n_components, self.array_curves)
+                    self.pca_result, self.pca_var_comp,self.n_components_used = calculate_pca(self.n_components, self.array_curves)
                     self.mean_model = np.mean(self.array_curves, axis=0)
 
             elif self.pathname == '/tab-AutoencoderDm':

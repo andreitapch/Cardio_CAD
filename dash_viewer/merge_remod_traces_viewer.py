@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from concurrent.futures import ThreadPoolExecutor
 import dash_bootstrap_components as dbc_components
 
-from dash_viewer.classification.load_prepare_data import load_segment_table_db
+from dash_viewer.classification.load_prepare_data import load_queries_table_db
 from pattern_recognition.data.database_connection import sql_queries
 from pattern_recognition.utils.parameters_dics import dbConParameters
 from pattern_recognition.data.database_connection.db_con import DatabaseConnection as dbc

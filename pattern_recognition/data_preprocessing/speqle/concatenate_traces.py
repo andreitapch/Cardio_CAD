@@ -7,9 +7,12 @@ import concurrent.futures
 
 def safe_eval(val):
     try:
-        return eval(val)
+        return ast.literal_eval(val)
     except Exception:
         return val
+
+def strip_and_get(series):
+    return series.astype(str).str.strip().values
 
 
 class CurveConcatenator:
@@ -27,13 +30,19 @@ class CurveConcatenator:
             tracesDF = pd.DataFrame(studyDf['strain_trace'].apply(safe_eval).tolist())
             concatenated_trace = np.concatenate(tracesDF.round(6).values)
 
-            concat_curve_segm = studyDf['curve_segment'].str.rstrip().values
+            concat_curve_segm = strip_and_get(studyDf['curve_segment'])
+
+            # concat_curve_segm = studyDf['curve_segment'].str.rstrip().values
 
             if not self.isReconstructed:
                 concat_curve_len = studyDf['curve_length'].values
-                concat_curve_segm_wall = studyDf['segment_wall'].str.rstrip().values
-                concat_curve_cardiac_view = studyDf['cardiac_view'].str.rstrip().values
-                concat_id_segment = studyDf['id_position'].str.rstrip().values
+                concat_curve_segm_wall = strip_and_get(studyDf['segment_wall'])
+                concat_curve_cardiac_view = strip_and_get(studyDf['cardiac_view'])
+                concat_id_segment = strip_and_get(studyDf['id_position'])
+
+                # concat_curve_segm_wall = studyDf['segment_wall'].str.rstrip().values
+                # concat_curve_cardiac_view = studyDf['cardiac_view'].str.rstrip().values
+                # concat_id_segment = studyDf['id_position'].str.rstrip().values
 
                 concat_traces.append({
                     'study_nr': study_nr,
@@ -61,13 +70,13 @@ class CurveConcatenator:
         tracesDF = pd.DataFrame(studyDf['strain_trace'].apply(safe_eval).tolist())
         concatenated_trace = np.concatenate(tracesDF.values)
 
-        concat_curve_segm = studyDf['curve_segment'].str.rstrip().values
+        concat_curve_segm = strip_and_get(studyDf['curve_segment']) #.str.rstrip().values
 
         if not self.isReconstructed:
             concat_curve_len = studyDf['curve_length'].values
-            concat_curve_segm_wall = studyDf['segment_wall'].str.rstrip().values
-            concat_curve_cardiac_view = studyDf['cardiac_view'].str.rstrip().values
-            concat_id_segment = studyDf['id_position'].str.rstrip().values
+            concat_curve_segm_wall = strip_and_get(studyDf['segment_wall']) #.str.rstrip().values
+            concat_curve_cardiac_view = strip_and_get(studyDf['cardiac_view']) #.str.rstrip().values
+            concat_id_segment = strip_and_get(studyDf['id_position']) #.str.rstrip().values
 
             return {
                 'study_nr': study_nr,
@@ -91,8 +100,10 @@ class CurveConcatenator:
         print('Concatenating traces...')
         unique_study_nr = self.segmental_tracesDF['study_nr'].unique()
 
+        # Threads avoid pickling 'self' and are usually faster with pandas/numpy work
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            concat_traces = list(executor.map(self.process_study_nr, unique_study_nr))
+            concat_traces = list(executor.map(self.process_study_nr, unique_study_nr, chunksize=10))
 
         concatenated_tracesDF = pd.DataFrame(concat_traces)
         return concatenated_tracesDF
+
