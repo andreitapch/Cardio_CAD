@@ -48,10 +48,13 @@ _stub_missing_dependencies()
 
 from dash_viewer.classification.model_params import ModelParams, DEFAULT_SEARCH_BUDGET
 from dash_viewer.classification.machine_learning.utils_classifier import (
-    _augment_with_imputed, choose_threshold, find_best_class_params)
+    DropUninformativeColumns, _augment_with_imputed, build_estimator_pipeline,
+    choose_threshold, find_best_class_params, make_splitter,
+    prepare_train_test_data, resolve_groups)
 
 
-def make_frame(n=200, informative=True, seed=0, n_features=8):
+def make_frame(n=200, informative=True, seed=0, n_features=8, studies_per_patient=1,
+               missing_frac=0.0):
     """Build a frame shaped the way prepare_train_test_data expects.
 
     Columns are ['study_nr', 'Total_Remodeling', f0..fN]; everything from index
@@ -66,9 +69,18 @@ def make_frame(n=200, informative=True, seed=0, n_features=8):
         X = rng.normal(size=(n, n_features))
         y = rng.integers(0, 2, n)  # labels independent of X
 
+    if missing_frac:
+        rng = np.random.default_rng(seed + 99)
+        X = X.copy()
+        X[rng.random(X.shape) < missing_frac] = np.nan
+
     frame = pd.DataFrame({'study_nr': np.arange(n), 'Total_Remodeling': y})
     for i in range(n_features):
         frame[f'f{i}'] = X[:, i]
+
+    if studies_per_patient > 1:
+        # Duplicate each patient across several studies, as the real cohort does.
+        frame['Patient_ID'] = np.arange(n) // studies_per_patient
     return frame
 
 
@@ -117,7 +129,7 @@ def test_imputed_rows_for_held_out_studies_are_dropped():
     imp_studies = np.array([10, 11, 12, 13, 14])
 
     X_aug, y_aug = _augment_with_imputed(X_train, y_train, X_imp, y_imp,
-                                         imp_studies, held_out_studies={11, 13})
+                                         imp_studies, held_out_keys={11, 13})
 
     assert X_aug.shape[0] == 4 + 3
     assert y_aug.shape[0] == 4 + 3
@@ -149,3 +161,95 @@ def test_no_signal_scores_at_chance():
 
     assert 0.35 < np.mean(aucs) < 0.65, f'AUC on noise was {np.mean(aucs):.3f}'
     assert abs(np.mean(mccs)) < 0.15, f'MCC on noise was {np.mean(mccs):.3f}'
+
+
+def test_pipeline_preprocessing_is_fit_on_training_data_only():
+    """The scaler must not see held-out rows.
+
+    Fit on a training block whose values are tiny, then transform a block whose
+    values are huge: if the scaler had been fit over both, the transformed
+    values would be near zero.
+    """
+    X_train = np.random.default_rng(0).normal(loc=0.0, scale=1.0, size=(60, 4))
+    X_held_out = np.full((10, 4), 1000.0)
+    y_train = np.tile([0, 1], 30)
+
+    from sklearn.tree import DecisionTreeClassifier
+    pipeline = build_estimator_pipeline(DecisionTreeClassifier(random_state=0), 'None')
+    pipeline.fit(X_train, y_train)
+
+    scaler = pipeline.named_steps['scale']
+    assert np.all(np.abs(scaler.mean_) < 1.0), scaler.mean_
+
+    transformed = pipeline[:-1].transform(X_held_out)
+    assert np.all(transformed > 10), transformed.max()
+
+
+def test_drop_uninformative_columns_learns_from_training_data():
+    X = np.array([
+        [1.0, 5.0, np.nan, 2.0],
+        [2.0, 5.0, np.nan, 3.0],
+        [3.0, 5.0, np.nan, 4.0],
+        [4.0, 5.0, 1.0, 5.0],
+    ])
+    dropper = DropUninformativeColumns(missing_threshold=30.0).fit(X)
+    # column 1 is constant, column 2 is 75% missing
+    assert list(dropper.columns_to_keep_) == [True, False, False, True]
+    assert dropper.transform(X).shape == (4, 2)
+
+
+def test_pipeline_imputes_missing_values():
+    frame = make_frame(n=160, informative=True, missing_frac=0.15)
+    metrics = run_pipeline(frame)[3]
+    assert isinstance(metrics, dict), 'NaNs should be handled inside the pipeline'
+    assert 'AUC_global' in metrics
+
+
+def test_resolve_groups_prefers_patient_id():
+    frame = make_frame(n=20, studies_per_patient=2)
+    groups = resolve_groups(frame)
+    assert groups is not None
+    assert len(set(groups)) == 10
+
+
+def test_resolve_groups_uses_patient_map_when_column_absent():
+    frame = make_frame(n=10)
+    mapping = {i: f'P{i // 2}' for i in range(10)}
+    groups = resolve_groups(frame, patient_map=mapping)
+    assert list(groups) == [f'P{i // 2}' for i in range(10)]
+
+
+def test_patients_never_straddle_a_fold():
+    """A patient's studies must land wholly on one side of every split."""
+    frame = make_frame(n=120, studies_per_patient=3)
+    groups = resolve_groups(frame)
+    y = frame['Total_Remodeling'].values
+    X = frame[[c for c in frame.columns if c.startswith('f')]].values
+
+    splitter, split_groups = make_splitter(3, groups)
+    for train_idx, test_idx in splitter.split(X, y, groups=split_groups):
+        assert not set(groups[train_idx]) & set(groups[test_idx])
+
+
+def test_grouped_run_still_produces_metrics():
+    frame = make_frame(n=180, informative=True, studies_per_patient=2)
+    metrics = run_pipeline(frame)[3]
+    assert isinstance(metrics, dict)
+    assert metrics['AUC_global'] > 0.6, metrics
+
+
+def test_identifier_columns_are_never_features():
+    """Patient_ID is carried for grouping; it must not reach the classifier.
+
+    Outcome is recorded per patient, so a patient identifier is close to a
+    direct label lookup.
+    """
+    frame = make_frame(n=40, studies_per_patient=2)
+    assert 'Patient_ID' in frame.columns
+
+    *_, feature_names_orig, _ = prepare_train_test_data(
+        frame, 'f0', None, None, 'class_features')
+
+    assert 'Patient_ID' not in feature_names_orig
+    assert 'study_nr' not in feature_names_orig
+    assert 'Total_Remodeling' not in feature_names_orig

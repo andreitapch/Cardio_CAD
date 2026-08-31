@@ -57,8 +57,13 @@ def is_shap_supported_model(model):
         LGBMClassifier,
     )
 
-    if isinstance(model, Pipeline):
+    # The estimator may sit inside an imblearn pipeline, which is not an
+    # sklearn Pipeline subclass, and LogisticRegression nests a second pipeline
+    # inside that. Unwrap until the final estimator is reached.
+    seen = 0
+    while hasattr(model, 'steps') and model.steps and seen < 10:
         model = model.steps[-1][1]
+        seen += 1
 
     return isinstance(model, shap_supported_models)
 

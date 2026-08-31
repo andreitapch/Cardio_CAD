@@ -178,13 +178,46 @@ def load_data_traces(input_type, isImputed, unbalanced_type, class_type, data_so
             imp_concat_tracesDF = merge_df(imp_echoParam_feat, imp_concat_tracesDF, col_to_keep)
             pass
 
-    return orig_concat_tracesDF, orig_feature_col_name, imp_concat_tracesDF, imp_feature_col_name, features
+    study_nrs = orig_concat_tracesDF['study_nr'] if (
+        orig_concat_tracesDF is not None and 'study_nr' in orig_concat_tracesDF.columns) else None
+    patient_map = load_patient_map(study_nrs)
+
+    return (orig_concat_tracesDF, orig_feature_col_name, imp_concat_tracesDF,
+            imp_feature_col_name, features, patient_map)
+
+
+def load_patient_map(study_nrs=None):
+    """study_nr -> Patient_ID, so cross-validation folds can be grouped by patient.
+
+    This cohort has several studies per patient; without the mapping the folds
+    split on study_nr and a patient can appear on both sides of a split.
+    """
+    try:
+        if study_nrs is not None:
+            study_nrs = [int(s) for s in pd.unique(pd.Series(list(study_nrs)))]
+            patientDF = load_queries_table_db('echo_biomarkers_view', 'study_nr', 'in', study_nrs)
+        else:
+            patientDF = load_queries_table_db('echo_biomarkers_view', None, None, None)
+
+        if patientDF is None or 'Patient_ID' not in patientDF.columns:
+            print("[WARN] could not load Patient_ID mapping; folds will be grouped by study_nr.")
+            return None
+
+        patientDF = patientDF[['study_nr', 'Patient_ID']].dropna().drop_duplicates('study_nr')
+        return dict(zip(patientDF['study_nr'].astype(int), patientDF['Patient_ID']))
+    except Exception as e:
+        print(f"[WARN] could not load Patient_ID mapping ({e}); folds will be grouped by study_nr.")
+        return None
 
 
 def load_feature_params(data_source, features, tracesDF):
     echo_paramDF, echo_feature_col_name = get_echoParams_data(tracesDF, data_source, features)
     echoParam_tracesDF = convert_echoParam_values(echo_paramDF)
-    X_orig, y_orig, patient_study_info, scaler = preprocess_data(echoParam_tracesDF, True)
+    # fit_preprocessing=False keeps missing values and raw scales: the KNN
+    # imputer and the scaler are refit inside each CV fold by
+    # build_estimator_pipeline() rather than once over every patient here.
+    X_orig, y_orig, patient_study_info, scaler = preprocess_data(
+        echoParam_tracesDF, True, fit_preprocessing=False)
     featuresDF, unique_features_list = load_selected_features()
 
     X_filtered = X_orig.loc[:, [col for col in X_orig.columns if col in unique_features_list]]

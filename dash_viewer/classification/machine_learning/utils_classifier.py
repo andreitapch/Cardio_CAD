@@ -1,6 +1,7 @@
 import gc
 import json
 import traceback
+import warnings
 from collections import Counter
 
 import numpy as np
@@ -12,12 +13,13 @@ import plotly.figure_factory as ff
 from imblearn.over_sampling import SMOTE
 from imblearn.over_sampling import ADASYN
 from imblearn.under_sampling import RandomUnderSampler
+from imblearn.pipeline import Pipeline as ImbPipeline
 
-from sklearn.base import clone
+from sklearn.base import clone, BaseEstimator, TransformerMixin
 from sklearn.impute import KNNImputer
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import precision_recall_curve
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import StratifiedKFold, StratifiedGroupKFold
 from sklearn.metrics import f1_score, accuracy_score
 from sklearn.metrics import matthews_corrcoef, recall_score
 from sklearn.metrics import roc_curve, auc, confusion_matrix
@@ -27,6 +29,92 @@ from dash_viewer.classification.machine_learning.utils.shap_explainer import com
     compute_shap_reduced, is_shap_supported_model, select_important_features
 from dash_viewer.classification.model_params import ModelParams, DEFAULT_SEARCH_BUDGET
 from pattern_recognition.utils.parameters_dics import dbTableNames
+
+
+class DropUninformativeColumns(BaseEstimator, TransformerMixin):
+    """Drop mostly-missing and constant columns, learned from training data only.
+
+    impute_missing_values() made the same two decisions, but it ran once over
+    the whole cohort before any split, so which columns survived was informed
+    by the patients being held out.
+    """
+
+    def __init__(self, missing_threshold=30.0):
+        self.missing_threshold = missing_threshold
+
+    def fit(self, X, y=None):
+        X = np.asarray(X, dtype=float)
+        missing_pct = np.isnan(X).mean(axis=0) * 100.0
+        keep = missing_pct <= self.missing_threshold
+
+        with warnings.catch_warnings():
+            # All-NaN columns are already excluded by `keep`; nanmin/nanmax warn
+            # on them anyway.
+            warnings.simplefilter('ignore', category=RuntimeWarning)
+            col_min = np.nanmin(X, axis=0)
+            col_max = np.nanmax(X, axis=0)
+        constant = np.isclose(col_min, col_max, equal_nan=True)
+        keep &= ~constant
+
+        if not keep.any():
+            # Nothing survives; keep everything rather than hand an empty
+            # matrix to the imputer.
+            print("[WARN] DropUninformativeColumns would drop every column; keeping all.")
+            keep = np.ones(X.shape[1], dtype=bool)
+
+        self.columns_to_keep_ = keep
+        self.n_features_in_ = X.shape[1]
+        return self
+
+    def transform(self, X):
+        X = np.asarray(X, dtype=float)
+        return X[:, self.columns_to_keep_]
+
+
+def make_sampler(unbalanced_type):
+    """Resampler for the imbalance strategy, as pipeline steps.
+
+    Returned as steps rather than applied directly so imblearn only runs them
+    during fit. Applying them by hand (the old get_samples call) risked
+    resampling data that was about to be predicted on.
+    """
+    if unbalanced_type == 'SMOTE':
+        return [('sampler', SMOTE(sampling_strategy='auto', k_neighbors=3, random_state=42))]
+    if unbalanced_type == 'ADASYN':
+        return [('sampler', ADASYN(sampling_strategy='auto', random_state=42))]
+    if unbalanced_type == 'Balanced':
+        return [('oversampler', ADASYN(sampling_strategy='auto', random_state=42)),
+                ('undersampler', RandomUnderSampler(sampling_strategy='auto', random_state=42))]
+    return []
+
+
+def build_estimator_pipeline(clf, unbalanced_type, n_neighbors=15, missing_threshold=30.0):
+    """Estimator with every fitted preprocessing step inside it.
+
+    Column dropping, KNN imputation and standardisation used to run once in
+    preprocess_data() over the full cohort, so the imputer's neighbours and the
+    scaler's mean/variance were computed partly from held-out patients. As
+    pipeline steps they are refit inside each fold on training data alone.
+    """
+    steps = [
+        ('drop_uninformative', DropUninformativeColumns(missing_threshold=missing_threshold)),
+        ('impute', KNNImputer(n_neighbors=n_neighbors)),
+        ('scale', StandardScaler()),
+    ]
+    steps += make_sampler(unbalanced_type)
+    steps.append(('clf', clf))
+    return ImbPipeline(steps)
+
+
+def surviving_feature_names(pipeline, feature_names):
+    """Feature names left after the pipeline's column-dropping step."""
+    if feature_names is None:
+        return None
+    try:
+        mask = pipeline.named_steps['drop_uninformative'].columns_to_keep_
+    except (AttributeError, KeyError):
+        return list(feature_names)
+    return [name for name, keep in zip(feature_names, mask) if keep]
 
 
 def predict_scores(model, X):
@@ -39,10 +127,14 @@ def predict_scores(model, X):
 
 
 def get_best_metrics(X_test, X_train, model, unbalanced_type, y_test, y_train):
-    """Threshold-free score for one train/test pair, used to rank hyperparameters."""
-    X_resampled, y_resampled = get_samples(X_train, unbalanced_type, y_train)
-    model.fit(X_resampled, y_resampled)
-    y_pred_proba = predict_scores(model, X_test)
+    """Threshold-free score for one train/test pair, used to rank hyperparameters.
+
+    Preprocessing and resampling happen inside the pipeline, so they are fit on
+    X_train alone and X_test is only ever transformed.
+    """
+    pipeline = build_estimator_pipeline(model, unbalanced_type)
+    pipeline.fit(X_train, y_train)
+    y_pred_proba = predict_scores(pipeline, X_test)
     return average_precision_score(y_test, y_pred_proba)
 
 
@@ -62,29 +154,43 @@ def choose_threshold(y_true, y_scores):
     return thr[min(best_idx, len(thr) - 1)]
 
 
-def fit_and_threshold(model, X_train, y_train, unbalanced_type, random_state=42):
+def fit_and_threshold(model, X_train, y_train, unbalanced_type, groups=None,
+                      random_state=42):
     """Fit on the training fold and pick a cutoff without touching held-out data.
 
-    The cutoff is chosen on an inner split of the training fold, then the model
-    is refit on the full training fold so no training data is wasted.
+    The cutoff is chosen on an inner split of the training fold, then the
+    pipeline is refit on the full training fold so no training data is wasted.
+    When groups are supplied the calibration split keeps a patient's studies on
+    one side, matching how the outer folds are built.
     """
-    X_res, y_res = get_samples(X_train, unbalanced_type, y_train)
-
     threshold = 0.5
     try:
-        inner = StratifiedKFold(n_splits=3, shuffle=True, random_state=random_state)
-        inner_train, inner_cal = next(iter(inner.split(X_train, y_train)))
+        splitter, split_groups = make_splitter(3, groups, shuffle=True,
+                                               random_state=random_state)
+        inner_train, inner_cal = next(iter(
+            splitter.split(X_train, y_train, groups=split_groups)))
 
-        X_inner_res, y_inner_res = get_samples(X_train[inner_train], unbalanced_type,
-                                               y_train[inner_train])
-        model.fit(X_inner_res, y_inner_res)
-        cal_scores = predict_scores(model, X_train[inner_cal])
+        calibration_pipeline = build_estimator_pipeline(clone(model), unbalanced_type)
+        calibration_pipeline.fit(X_train[inner_train], y_train[inner_train])
+        cal_scores = predict_scores(calibration_pipeline, X_train[inner_cal])
         threshold = choose_threshold(y_train[inner_cal], cal_scores)
     except Exception as e:
         print(f"[WARN] threshold calibration failed ({e}); falling back to 0.5")
 
-    model.fit(X_res, y_res)
-    return model, threshold
+    pipeline = build_estimator_pipeline(model, unbalanced_type)
+    pipeline.fit(X_train, y_train)
+    return pipeline, threshold
+
+
+# Columns that identify a row rather than describe it. Patient_ID in
+# particular is now carried on some frames so folds can be grouped by patient;
+# without this guard the positional columns[2:] slice below would hand it to the
+# classifier as a predictor, which is a near-perfect label proxy in a cohort
+# where outcome is recorded per patient.
+ID_COLUMNS = frozenset({'study_nr', 'Patient_ID', 'patientID', 'data_source',
+                        'EDV_source', 'reconstructed_type', 'isImputed',
+                        'n_components', 'encoding'})
+LABEL_COLUMN = 'Total_Remodeling'
 
 
 def prepare_train_test_data(orig_data, orig_feature_col_name, imp_data, imp_feature_col_name, feature):
@@ -120,11 +226,11 @@ def prepare_train_test_data(orig_data, orig_feature_col_name, imp_data, imp_feat
     else:
         X_imp_concat, X_concat = None, None
 
-        features = orig_data.columns[2:].tolist()
+        features = [c for c in orig_data.columns[2:] if c not in ID_COLUMNS]
         feature_names = features.copy()
 
-        if 'Total_Remodeling' in features:
-            features.remove('Total_Remodeling')
+        if LABEL_COLUMN in features:
+            features.remove(LABEL_COLUMN)
         elif feature == 'gls':
             features = 'global_strain'
 
@@ -153,29 +259,8 @@ def prepare_train_test_data(orig_data, orig_feature_col_name, imp_data, imp_feat
         return X_imp, y_imp, X_orig, y, feature_names_orig, feature_names_imp
 
 
-def get_samples(X_train, unbalanced_type, y_train):
-    X_resampled, y_resampled = X_train, y_train
-
-    if unbalanced_type == 'SMOTE':
-        oversample = SMOTE(sampling_strategy='auto', k_neighbors=3, random_state=42)
-        X_resampled, y_resampled = oversample.fit_resample(X_train, y_train)
-
-    elif unbalanced_type == 'ADASYN':
-        oversample = ADASYN(sampling_strategy='auto', random_state=42)
-        X_resampled, y_resampled = oversample.fit_resample(X_train, y_train)
-
-    elif unbalanced_type == 'Balanced':
-        oversample = ADASYN(sampling_strategy='auto', random_state=42)
-        smote = SMOTE(sampling_strategy='auto', k_neighbors=3, random_state=42)
-        under = RandomUnderSampler(sampling_strategy='auto', random_state=42)
-        X_resampled, y_resampled = oversample.fit_resample(X_train, y_train)
-        X_resampled, y_resampled = under.fit_resample(X_resampled, y_resampled)
-
-    return X_resampled, y_resampled
-
-
 def _study_ids(df):
-    """Patient/study identifiers aligned row-for-row with the feature matrix.
+    """Study identifiers aligned row-for-row with the feature matrix.
 
     prepare_train_test_data() never reorders rows, so positional indexing into
     this array matches the X it returns.
@@ -185,22 +270,61 @@ def _study_ids(df):
     return df['study_nr'].values
 
 
-def _augment_with_imputed(X_train, y_train, X_imp, y_imp, imp_studies, held_out_studies):
-    """Add imputed rows to a training fold, minus any belonging to held-out studies.
+def resolve_groups(data, patient_map=None):
+    """Patient-level group ids for the rows of `data`.
+
+    Folds must not split a patient across train and test: this cohort has
+    several studies per patient, so a row-level split lets the same patient
+    inform both sides. Returns None when no patient identity is available, in
+    which case the caller falls back to a plain stratified split.
+    """
+    if data is None:
+        return None
+
+    if 'Patient_ID' in data.columns:
+        return data['Patient_ID'].values
+
+    if patient_map and 'study_nr' in data.columns:
+        studies = data['study_nr'].values
+        mapped = [patient_map.get(int(s)) for s in studies]
+        missing = sum(1 for m in mapped if m is None)
+        if missing:
+            print(f"[WARN] {missing}/{len(mapped)} studies have no Patient_ID; "
+                  f"those rows are grouped by study_nr instead.")
+            mapped = [m if m is not None else f'study:{s}'
+                      for m, s in zip(mapped, studies)]
+        return np.asarray(mapped, dtype=object)
+
+    print("[WARN] no Patient_ID available - folds split on study_nr, so a patient "
+          "with several studies can appear in both training and test.")
+    return None
+
+
+def make_splitter(n_splits, groups, shuffle=True, random_state=42):
+    """Cross-validation splitter, group-aware when patient ids are available."""
+    if groups is None:
+        return StratifiedKFold(n_splits=n_splits, shuffle=shuffle,
+                               random_state=random_state), None
+    return StratifiedGroupKFold(n_splits=n_splits, shuffle=shuffle,
+                                random_state=random_state), groups
+
+
+def _augment_with_imputed(X_train, y_train, X_imp, y_imp, imp_keys, held_out_keys):
+    """Add imputed rows to a training fold, minus any belonging to held-out patients.
 
     The imputed frame covers the same cohort as the original one, so adding it
     wholesale (the previous behaviour) put a near-duplicate of every held-out
-    patient into training. Rows whose study_nr is being evaluated are dropped.
+    patient into training. Rows keyed to a patient being evaluated are dropped.
     """
     if X_imp is None:
         return X_train, y_train
 
-    if imp_studies is None:
-        print("[WARN] imputed frame has no study_nr column - cannot verify patient "
+    if imp_keys is None:
+        print("[WARN] imputed frame has no study_nr/Patient_ID - cannot verify patient "
               "separation; imputed rows are being dropped rather than leaked.")
         return X_train, y_train
 
-    keep = ~np.isin(imp_studies, list(held_out_studies))
+    keep = ~np.isin(imp_keys, list(held_out_keys))
     if not keep.any():
         return X_train, y_train
 
@@ -210,21 +334,27 @@ def _augment_with_imputed(X_train, y_train, X_imp, y_imp, imp_studies, held_out_
 def find_best_class_params(orig_data, orig_feature_col_name, imp_data,
                            imp_feature_col_name, unbalanced_type, class_type, features,
                            n_outer_splits=5, n_inner_splits=5,
-                           search_budget=DEFAULT_SEARCH_BUDGET, random_state=42):
-    """Nested cross-validation: hyperparameters chosen inside each outer fold.
+                           search_budget=DEFAULT_SEARCH_BUDGET, random_state=42,
+                           patient_map=None):
+    """Nested, patient-grouped cross-validation.
 
-    The previous implementation selected hyperparameters on one set of 5 folds
-    and then reported metrics on those same folds, so the best-of-N maximum was
-    reported as if it were an unbiased estimate. Here the inner loop only ever
-    sees the outer training split, and the reported metrics come from outer test
-    folds that took no part in selection.
+    Three things are kept inside the training half of every split: the
+    hyperparameter search (inner loop), the preprocessing steps (imputer and
+    scaler, refit per fold via build_estimator_pipeline), and the decision
+    threshold. Folds are grouped by patient so no patient's studies straddle
+    the split.
     """
     try:
         X_imp, y_imp, X_orig, y_orig, feature_names_orig, feature_names_imp = prepare_train_test_data(
             orig_data, orig_feature_col_name, imp_data, imp_feature_col_name, features)
 
-        orig_studies = _study_ids(orig_data)
-        imp_studies = _study_ids(imp_data)
+        groups = resolve_groups(orig_data, patient_map)
+        imp_groups = resolve_groups(imp_data, patient_map) if imp_data is not None else None
+
+        # Keys used to keep imputed duplicates out of evaluated folds: patient
+        # identity when known, study identity otherwise.
+        orig_keys = groups if groups is not None else _study_ids(orig_data)
+        imp_keys = imp_groups if imp_groups is not None else _study_ids(imp_data)
 
         parameters = ModelParams()
         parameters.get_param_grid(class_type, unbalanced_type, n_iter=search_budget,
@@ -236,19 +366,21 @@ def find_best_class_params(orig_data, orig_feature_col_name, imp_data,
         per_fold_params, per_fold_inner_scores = [], []
         last_fold = None
 
-        outer = StratifiedKFold(n_splits=n_outer_splits, shuffle=True, random_state=random_state)
-        outer_splits = list(outer.split(X_orig, y_orig))
+        outer_splitter, outer_groups = make_splitter(n_outer_splits, groups,
+                                                     random_state=random_state)
+        outer_splits = list(outer_splitter.split(X_orig, y_orig, groups=outer_groups))
 
         for fold, (outer_train, outer_test) in enumerate(outer_splits):
             X_tr, y_tr = X_orig[outer_train], y_orig[outer_train]
             X_te, y_te = X_orig[outer_test], y_orig[outer_test]
 
-            outer_test_studies = set(orig_studies[outer_test]) if orig_studies is not None else set()
+            held_out_keys = set(orig_keys[outer_test]) if orig_keys is not None else set()
+            train_groups = groups[outer_train] if groups is not None else None
 
             # ---- inner loop: hyperparameter selection, outer training data only ----
-            inner = StratifiedKFold(n_splits=n_inner_splits, shuffle=True,
-                                    random_state=random_state)
-            inner_splits = list(inner.split(X_tr, y_tr))
+            inner_splitter, inner_groups = make_splitter(n_inner_splits, train_groups,
+                                                         random_state=random_state)
+            inner_splits = list(inner_splitter.split(X_tr, y_tr, groups=inner_groups))
 
             best_inner_score, best_params = -np.inf, None
 
@@ -258,11 +390,11 @@ def find_best_class_params(orig_data, orig_feature_col_name, imp_data,
                     Xi_tr, yi_tr = X_tr[inner_train], y_tr[inner_train]
                     Xi_te, yi_te = X_tr[inner_test], y_tr[inner_test]
 
-                    held_out = set(outer_test_studies)
-                    if orig_studies is not None:
-                        held_out |= set(orig_studies[outer_train][inner_test])
+                    inner_held_out = set(held_out_keys)
+                    if orig_keys is not None:
+                        inner_held_out |= set(orig_keys[outer_train][inner_test])
                     Xi_tr, yi_tr = _augment_with_imputed(Xi_tr, yi_tr, X_imp, y_imp,
-                                                         imp_studies, held_out)
+                                                         imp_keys, inner_held_out)
 
                     model = clone(parameters.clf).set_params(**param_combination)
                     try:
@@ -286,13 +418,18 @@ def find_best_class_params(orig_data, orig_feature_col_name, imp_data,
 
             # ---- outer evaluation: refit + threshold on training data only ----
             X_tr_aug, y_tr_aug = _augment_with_imputed(X_tr, y_tr, X_imp, y_imp,
-                                                       imp_studies, outer_test_studies)
+                                                       imp_keys, held_out_keys)
+            # Imputed rows are prepended, so the group vector no longer lines up
+            # with the augmented matrix; threshold calibration falls back to a
+            # plain stratified split in that case.
+            threshold_groups = train_groups if X_tr_aug.shape[0] == X_tr.shape[0] else None
 
             model = clone(parameters.clf).set_params(**best_params)
-            model, threshold = fit_and_threshold(model, X_tr_aug, y_tr_aug, unbalanced_type,
-                                                 random_state=random_state)
+            pipeline, threshold = fit_and_threshold(model, X_tr_aug, y_tr_aug, unbalanced_type,
+                                                    groups=threshold_groups,
+                                                    random_state=random_state)
 
-            y_pred_proba = predict_scores(model, X_te)
+            y_pred_proba = predict_scores(pipeline, X_te)
             y_pred = (y_pred_proba >= threshold).astype(int)
 
             calculate_final_metrics(metrics, y_te, y_pred, y_pred_proba)
@@ -302,7 +439,7 @@ def find_best_class_params(orig_data, orig_feature_col_name, imp_data,
 
             per_fold_params.append(best_params)
             per_fold_inner_scores.append(round(best_inner_score, 4))
-            last_fold = (model, X_te)
+            last_fold = (pipeline, X_te)
 
             print(f"[Fold {fold + 1}] inner PR-AUC {best_inner_score:.4f} | "
                   f"threshold {threshold:.3f} | outer PR-AUC {metrics['PR-AUC'][-1]:.4f} | "
@@ -351,8 +488,24 @@ def _most_common_params(per_fold_params):
     return json.loads(counts.most_common(1)[0][0])
 
 
+def apply_preprocessing(pipeline, X):
+    """Run X through the pipeline's transform steps, skipping the samplers.
+
+    Samplers only act during fit and expose no transform, so they are stepped
+    over here.
+    """
+    for _, step in pipeline.steps[:-1]:
+        if hasattr(step, 'transform'):
+            X = step.transform(X)
+    return X
+
+
 def _compute_shap_for_fold(last_fold, class_type, features, feature_names_orig):
-    """SHAP for the final outer fold's model.
+    """SHAP for the final outer fold's fitted pipeline.
+
+    The estimator is unwrapped from the pipeline and given the preprocessed
+    matrix it was actually trained on, with feature names narrowed to the
+    columns that survived the drop step.
 
     Note: this explains one fold, not the ensemble of folds. Averaging SHAP
     across folds would be more faithful but the models differ in shape.
@@ -361,11 +514,15 @@ def _compute_shap_for_fold(last_fold, class_type, features, feature_names_orig):
     if last_fold is None:
         return empty
 
-    model, X_val = last_fold
+    pipeline, X_val = last_fold
+    model = pipeline.steps[-1][1]
     if not is_shap_supported_model(model) or features in ['global_strain']:
         return empty
 
     try:
+        X_val = apply_preprocessing(pipeline, X_val)
+        feature_names_orig = surviving_feature_names(pipeline, feature_names_orig)
+
         if class_type in ['reconstructed_traces', 'reconstructed_traces_vac']:
             shap_values, shap_input_df = compute_shap_timepoints(model, X_val, feature_names_orig)
         else:
@@ -479,17 +636,31 @@ def convert_echoParam_values(echo_paramDF):
 #     return echoParam_tracesDF, feature_col_name
 
 
-def preprocess_data(echo_paramDF, isStandardized):
+def preprocess_data(echo_paramDF, isStandardized, fit_preprocessing=True):
+    """Split a biomarker frame into features, labels and patient identifiers.
+
+    fit_preprocessing=False returns the features raw - missing values intact,
+    unscaled - so the KNN imputer and the scaler can be fit per fold inside
+    build_estimator_pipeline() instead of once over the whole cohort. Fitting
+    them here means the imputer's neighbours and the scaler's mean and variance
+    are computed partly from patients that later land in a test fold.
+    """
     y = echo_paramDF[['Total_Remodeling']].reset_index(drop=True)
-    # study_nr = echo_paramDF[['study_nr']].reset_index(drop=True)
     scaler = StandardScaler()
     if isStandardized:
         patient_study_info = echo_paramDF[['Patient_ID', 'study_nr']]
         columns_to_drop = ['Patient_ID', 'study_nr', 'data_source', 'EDV_source', 'Total_Remodeling', 'Height',
                            'Weight']
-        imputed_X, num_cols = impute_tab_data(columns_to_drop, echo_paramDF)
-        X_scaled = imputed_X.copy()
-        X_scaled[num_cols] = scaler.fit_transform(X_scaled[num_cols])
+        if fit_preprocessing:
+            imputed_X, num_cols = impute_tab_data(columns_to_drop, echo_paramDF)
+            X_scaled = imputed_X.copy()
+            X_scaled[num_cols] = scaler.fit_transform(X_scaled[num_cols])
+        else:
+            scaler = None
+            X_scaled = (echo_paramDF
+                        .drop(columns=columns_to_drop, errors='ignore')
+                        .apply(pd.to_numeric, errors='coerce'))
+            X_scaled = X_scaled.select_dtypes(include=['int64', 'float64'])
         X_scaled = X_scaled.reset_index(drop=True)
         patient_study_info = patient_study_info.reset_index(drop=True)
 
@@ -520,16 +691,13 @@ def load_selected_features():
 
 
 def best_params_table(orig_concat_tracesDF, orig_feature_col_name,
-                      imp_concat_tracesDF, imp_feature_col_name, unbalanced_type, class_type, features):
+                      imp_concat_tracesDF, imp_feature_col_name, unbalanced_type, class_type,
+                      features, patient_map=None):
 
     (best_model, best_param, best_test_score, test_metrics,
-     cm,shap_values, shap_input_df, important_features, shap_df) = find_best_class_params(orig_concat_tracesDF,
-                                                                                          orig_feature_col_name,
-                                                                                         imp_concat_tracesDF,
-                                                                                         imp_feature_col_name,
-                                                                                         unbalanced_type,
-                                                                                         class_type,
-                                                                                         features)
+     cm, shap_values, shap_input_df, important_features, shap_df) = find_best_class_params(
+        orig_concat_tracesDF, orig_feature_col_name, imp_concat_tracesDF, imp_feature_col_name,
+        unbalanced_type, class_type, features, patient_map=patient_map)
 
     if best_param is None or test_metrics is None:
         print("[ERROR] classification run produced no result; see traceback above.")
