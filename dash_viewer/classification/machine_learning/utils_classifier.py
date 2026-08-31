@@ -90,22 +90,72 @@ def make_sampler(unbalanced_type):
     return []
 
 
-def build_estimator_pipeline(clf, unbalanced_type, n_neighbors=15, missing_threshold=30.0):
+# Inputs whose columns are successive time points of one strain curve rather
+# than independent measurements.
+TRACE_INPUTS = frozenset({'reconstructed_traces', 'reconstructed_traces_vac'})
+
+
+def default_scaling_for(class_input):
+    """Whether to standardise features for this input type.
+
+    Off for raw strain traces. Their columns are time points of a single curve,
+    so z-scoring each one independently rescales every point by a different
+    factor and flattens the amplitude differences along the curve. Tree models
+    are indifferent (a monotonic per-feature transform does not change their
+    splits) but KNN is not: it changes the distance metric outright.
+
+    On for tabular biomarkers and PCA/autoencoder components, which are
+    genuinely separate quantities on different units.
+    """
+    return class_input not in TRACE_INPUTS
+
+
+def build_estimator_pipeline(clf, unbalanced_type, n_neighbors=15, missing_threshold=30.0,
+                             scale=True):
     """Estimator with every fitted preprocessing step inside it.
 
     Column dropping, KNN imputation and standardisation used to run once in
     preprocess_data() over the full cohort, so the imputer's neighbours and the
     scaler's mean/variance were computed partly from held-out patients. As
     pipeline steps they are refit inside each fold on training data alone.
+
+    scale=False omits the scaler; see default_scaling_for().
     """
     steps = [
         ('drop_uninformative', DropUninformativeColumns(missing_threshold=missing_threshold)),
         ('impute', KNNImputer(n_neighbors=n_neighbors)),
-        ('scale', StandardScaler()),
     ]
+    if scale:
+        steps.append(('scale', StandardScaler()))
     steps += make_sampler(unbalanced_type)
     steps.append(('clf', clf))
     return ImbPipeline(steps)
+
+
+def shap_unavailable_reason(class_type, features):
+    """Why SHAP will not be produced for this run, or None if it will be.
+
+    The viewer shows this instead of leaving the explanation panel silently
+    blank, which gave no clue whether SHAP had failed or was never attempted.
+    """
+    if features in ['global_strain']:
+        return ("SHAP is not produced for a single global-strain feature - "
+                "there is nothing to rank.")
+
+    try:
+        probe = ModelParams()
+        probe.get_param_grid(class_type, 'None', n_iter=1)
+    except ValueError:
+        return f"Unknown classifier type '{class_type}'."
+
+    if not is_shap_supported_model(probe.clf):
+        label = type(probe.clf).__name__
+        if hasattr(probe.clf, 'steps'):
+            label = type(probe.clf.steps[-1][1]).__name__
+        return (f"SHAP is only computed for tree ensembles (Random Forest, "
+                f"Gradient Boosting, XGBoost, LightGBM). {label} is not covered, "
+                f"so no feature ranking is shown.")
+    return None
 
 
 def surviving_feature_names(pipeline, feature_names):
@@ -128,13 +178,13 @@ def predict_scores(model, X):
     raise ValueError("The model does not support probability prediction.")
 
 
-def get_best_metrics(X_test, X_train, model, unbalanced_type, y_test, y_train):
+def get_best_metrics(X_test, X_train, model, unbalanced_type, y_test, y_train, scale=True):
     """Threshold-free score for one train/test pair, used to rank hyperparameters.
 
     Preprocessing and resampling happen inside the pipeline, so they are fit on
     X_train alone and X_test is only ever transformed.
     """
-    pipeline = build_estimator_pipeline(model, unbalanced_type)
+    pipeline = build_estimator_pipeline(model, unbalanced_type, scale=scale)
     pipeline.fit(X_train, y_train)
     y_pred_proba = predict_scores(pipeline, X_test)
     return average_precision_score(y_test, y_pred_proba)
@@ -157,7 +207,7 @@ def choose_threshold(y_true, y_scores):
 
 
 def fit_and_threshold(model, X_train, y_train, unbalanced_type, groups=None,
-                      random_state=42):
+                      random_state=42, scale=True):
     """Fit on the training fold and pick a cutoff without touching held-out data.
 
     The cutoff is chosen on an inner split of the training fold, then the
@@ -172,14 +222,14 @@ def fit_and_threshold(model, X_train, y_train, unbalanced_type, groups=None,
         inner_train, inner_cal = next(iter(
             splitter.split(X_train, y_train, groups=split_groups)))
 
-        calibration_pipeline = build_estimator_pipeline(clone(model), unbalanced_type)
+        calibration_pipeline = build_estimator_pipeline(clone(model), unbalanced_type, scale=scale)
         calibration_pipeline.fit(X_train[inner_train], y_train[inner_train])
         cal_scores = predict_scores(calibration_pipeline, X_train[inner_cal])
         threshold = choose_threshold(y_train[inner_cal], cal_scores)
     except Exception as e:
         print(f"[WARN] threshold calibration failed ({e}); falling back to 0.5")
 
-    pipeline = build_estimator_pipeline(model, unbalanced_type)
+    pipeline = build_estimator_pipeline(model, unbalanced_type, scale=scale)
     pipeline.fit(X_train, y_train)
     return pipeline, threshold
 
@@ -337,7 +387,8 @@ def _augment_with_imputed(X_train, y_train, X_imp, y_imp, imp_keys, held_out_key
 def find_best_class_params(orig_data, orig_feature_col_name, imp_data,
                            imp_feature_col_name, unbalanced_type, class_type, features,
                            n_outer_splits=5, n_inner_splits=5,
-                           search_budget=DEFAULT_SEARCH_BUDGET, random_state=42):
+                           search_budget=DEFAULT_SEARCH_BUDGET, random_state=42,
+                           scale_features=None, class_input=None):
     """Nested cross-validation with exam-safe folds.
 
     Three things are kept inside the training half of every split: the
@@ -347,6 +398,10 @@ def find_best_class_params(orig_data, orig_feature_col_name, imp_data,
     one row, so its rows cannot straddle a split.
     """
     try:
+        if scale_features is None:
+            scale_features = default_scaling_for(class_input if class_input is not None else class_type)
+        print(f"[INFO] feature standardisation: {'on' if scale_features else 'off'}")
+
         X_imp, y_imp, X_orig, y_orig, feature_names_orig, feature_names_imp = prepare_train_test_data(
             orig_data, orig_feature_col_name, imp_data, imp_feature_col_name, features)
 
@@ -400,7 +455,8 @@ def find_best_class_params(orig_data, orig_feature_col_name, imp_data,
                     model = clone(parameters.clf).set_params(**param_combination)
                     try:
                         inner_scores.append(
-                            get_best_metrics(Xi_te, Xi_tr, model, unbalanced_type, yi_te, yi_tr))
+                            get_best_metrics(Xi_te, Xi_tr, model, unbalanced_type, yi_te, yi_tr,
+                                             scale=scale_features))
                     except Exception as e:
                         print(f"[WARN] fold {fold + 1} params {param_combination} failed: {e}")
                         inner_scores.append(np.nan)
@@ -428,7 +484,8 @@ def find_best_class_params(orig_data, orig_feature_col_name, imp_data,
             model = clone(parameters.clf).set_params(**best_params)
             pipeline, threshold = fit_and_threshold(model, X_tr_aug, y_tr_aug, unbalanced_type,
                                                     groups=threshold_groups,
-                                                    random_state=random_state)
+                                                    random_state=random_state,
+                                                    scale=scale_features)
 
             y_pred_proba = predict_scores(pipeline, X_te)
             y_pred = (y_pred_proba >= threshold).astype(int)
@@ -783,12 +840,13 @@ def load_selected_features():
 
 def best_params_table(orig_concat_tracesDF, orig_feature_col_name,
                       imp_concat_tracesDF, imp_feature_col_name, unbalanced_type, class_type,
-                      features):
+                      features, scale_features=None, class_input=None):
 
     (best_model, best_param, best_test_score, test_metrics,
      cm, shap_values, shap_input_df, important_features, shap_df) = find_best_class_params(
         orig_concat_tracesDF, orig_feature_col_name, imp_concat_tracesDF, imp_feature_col_name,
-        unbalanced_type, class_type, features)
+        unbalanced_type, class_type, features,
+        scale_features=scale_features, class_input=class_input)
 
     if best_param is None or test_metrics is None:
         print("[ERROR] classification run produced no result; see traceback above.")

@@ -49,8 +49,8 @@ _stub_missing_dependencies()
 from dash_viewer.classification.model_params import ModelParams, DEFAULT_SEARCH_BUDGET
 from dash_viewer.classification.machine_learning.utils_classifier import (
     DropUninformativeColumns, _augment_with_imputed, build_estimator_pipeline,
-    choose_threshold, find_best_class_params, make_splitter,
-    prepare_train_test_data, resolve_exam_groups)
+    choose_threshold, default_scaling_for, find_best_class_params, make_splitter,
+    prepare_train_test_data, resolve_exam_groups, shap_unavailable_reason)
 
 
 def make_frame(n=200, informative=True, seed=0, n_features=8, duplicate_exams=0,
@@ -335,3 +335,66 @@ def test_shap_ranking_reflects_all_folds_not_the_last():
     mean_abs = np.abs(stacked.values).mean(axis=0)
     # last fold alone would rank strong_early at 0; pooled it dominates
     assert mean_abs[0] > mean_abs[1], mean_abs
+
+
+# --- feature scaling --------------------------------------------------------
+
+def test_raw_traces_are_not_standardised_by_default():
+    """Trace columns are time points of one curve, not independent measurements."""
+    assert default_scaling_for('reconstructed_traces') is False
+    assert default_scaling_for('reconstructed_traces_vac') is False
+
+
+def test_tabular_inputs_are_standardised_by_default():
+    for class_input in ('features_class', 'components', 'gls_class'):
+        assert default_scaling_for(class_input) is True, class_input
+
+
+def test_scale_flag_controls_the_pipeline():
+    from sklearn.tree import DecisionTreeClassifier
+    clf = DecisionTreeClassifier(random_state=0)
+
+    with_scale = [n for n, _ in build_estimator_pipeline(clf, 'None', scale=True).steps]
+    without = [n for n, _ in build_estimator_pipeline(clf, 'None', scale=False).steps]
+
+    assert 'scale' in with_scale
+    assert 'scale' not in without
+    # dropping the scaler must not disturb the rest of the pipeline
+    assert [n for n in with_scale if n != 'scale'] == without
+
+
+def test_unscaled_pipeline_preserves_trace_amplitude():
+    """Relative amplitude across time points must survive when scaling is off."""
+    from sklearn.tree import DecisionTreeClassifier
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(40, 4)) * np.array([1.0, 10.0, 100.0, 1000.0])
+    y = np.tile([0, 1], 20)
+
+    pipeline = build_estimator_pipeline(DecisionTreeClassifier(random_state=0), 'None', scale=False)
+    pipeline.fit(X, y)
+    transformed = pipeline[:-1].transform(X)
+
+    spread = transformed.std(axis=0)
+    assert spread[3] > spread[0] * 50, spread
+
+    scaled = build_estimator_pipeline(DecisionTreeClassifier(random_state=0), 'None', scale=True)
+    scaled.fit(X, y)
+    flattened = scaled[:-1].transform(X).std(axis=0)
+    np.testing.assert_allclose(flattened, np.ones(4), rtol=0.05)
+
+
+# --- SHAP availability messaging --------------------------------------------
+
+def test_shap_reason_given_for_unsupported_models():
+    for class_type in ('KNN_class', 'DT_class', 'LogisticRegression_class'):
+        reason = shap_unavailable_reason(class_type, 'class_features')
+        assert reason and 'SHAP' in reason, class_type
+
+
+def test_no_shap_reason_for_supported_models():
+    for class_type in ('RF_class', 'GBM_class'):
+        assert shap_unavailable_reason(class_type, 'class_features') is None, class_type
+
+
+def test_shap_reason_for_single_feature_input():
+    assert shap_unavailable_reason('RF_class', 'global_strain') is not None
