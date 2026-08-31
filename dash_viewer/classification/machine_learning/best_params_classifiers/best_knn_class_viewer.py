@@ -101,8 +101,7 @@ def update_output(isImputed, btn_neighbors, data_source, unbalanced_type,
                 print('-----------------------------------------------------------------------------------------------')
                 component = n_components
 
-                (orig_concat_tracesDF, orig_feature_col_name, imp_concat_tracesDF,
-                 imp_feature_col_name, features, patient_map) = \
+                orig_concat_tracesDF, orig_feature_col_name, imp_concat_tracesDF, imp_feature_col_name, features = \
                     load_data_traces(input_type, isImputed, unbalanced_type, class_type, data_source, component, addGLS,
                                      addFeatEcho, pc_number, class_input)
 
@@ -112,8 +111,7 @@ def update_output(isImputed, btn_neighbors, data_source, unbalanced_type,
                                                                   orig_feature_col_name,
                                                                   imp_concat_tracesDF,
                                                                   imp_feature_col_name,
-                                                                  unbalanced_type, class_type, features,
-                                                                  patient_map)
+                                                                  unbalanced_type, class_type, features)
 
                 dash_beeswarm = shap_beeswarm_base64(shap_values, class_input)
 

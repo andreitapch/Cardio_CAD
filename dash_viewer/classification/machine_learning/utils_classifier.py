@@ -270,38 +270,39 @@ def _study_ids(df):
     return df['study_nr'].values
 
 
-def resolve_groups(data, patient_map=None):
-    """Patient-level group ids for the rows of `data`.
+def resolve_exam_groups(data):
+    """Group ids that keep one exam on one side of a split, or None if unneeded.
 
-    Folds must not split a patient across train and test: this cohort has
-    several studies per patient, so a row-level split lets the same patient
-    inform both sides. Returns None when no patient identity is available, in
-    which case the caller falls back to a plain stratified split.
+    The unit of analysis is the exam, not the patient: Patient_ID and study_nr
+    are 1:1 in this cohort (252 patients, 252 studies), so grouping by patient
+    would buy nothing. What does vary is the number of ROWS per exam. The
+    multiple rows an exam has upstream - one per cardiac view in
+    ste_strainValues, one per segment in ste_segmentalStrain - are aggregated
+    to a single row before they reach here, but not always: a handful of
+    studies appear twice in echo_biomarkers_view with two EDV sources
+    (3DEcho/2DEcho2 and CMR), same label and same strain, differing only in the
+    volume measurements.
+
+    Two rows of one exam sharing a label must not straddle a split, so grouping
+    kicks in only when duplicates are actually present. When every row is a
+    distinct exam this returns None and the caller uses a plain stratified
+    split, which stratifies better than the grouped splitter.
     """
-    if data is None:
+    if data is None or 'study_nr' not in data.columns:
         return None
 
-    if 'Patient_ID' in data.columns:
-        return data['Patient_ID'].values
+    studies = data['study_nr'].values
+    n_duplicated = len(studies) - len(pd.unique(studies))
+    if n_duplicated == 0:
+        return None
 
-    if patient_map and 'study_nr' in data.columns:
-        studies = data['study_nr'].values
-        mapped = [patient_map.get(int(s)) for s in studies]
-        missing = sum(1 for m in mapped if m is None)
-        if missing:
-            print(f"[WARN] {missing}/{len(mapped)} studies have no Patient_ID; "
-                  f"those rows are grouped by study_nr instead.")
-            mapped = [m if m is not None else f'study:{s}'
-                      for m, s in zip(mapped, studies)]
-        return np.asarray(mapped, dtype=object)
-
-    print("[WARN] no Patient_ID available - folds split on study_nr, so a patient "
-          "with several studies can appear in both training and test.")
-    return None
+    print(f"[INFO] {n_duplicated} duplicate exam row(s) found; folds will be "
+          f"grouped by study_nr so no exam straddles a split.")
+    return studies
 
 
 def make_splitter(n_splits, groups, shuffle=True, random_state=42):
-    """Cross-validation splitter, group-aware when patient ids are available."""
+    """Cross-validation splitter, group-aware when group ids are supplied."""
     if groups is None:
         return StratifiedKFold(n_splits=n_splits, shuffle=shuffle,
                                random_state=random_state), None
@@ -334,27 +335,25 @@ def _augment_with_imputed(X_train, y_train, X_imp, y_imp, imp_keys, held_out_key
 def find_best_class_params(orig_data, orig_feature_col_name, imp_data,
                            imp_feature_col_name, unbalanced_type, class_type, features,
                            n_outer_splits=5, n_inner_splits=5,
-                           search_budget=DEFAULT_SEARCH_BUDGET, random_state=42,
-                           patient_map=None):
-    """Nested, patient-grouped cross-validation.
+                           search_budget=DEFAULT_SEARCH_BUDGET, random_state=42):
+    """Nested cross-validation with exam-safe folds.
 
     Three things are kept inside the training half of every split: the
     hyperparameter search (inner loop), the preprocessing steps (imputer and
     scaler, refit per fold via build_estimator_pipeline), and the decision
-    threshold. Folds are grouped by patient so no patient's studies straddle
-    the split.
+    threshold. Folds are grouped by study_nr when an exam contributes more than
+    one row, so its rows cannot straddle a split.
     """
     try:
         X_imp, y_imp, X_orig, y_orig, feature_names_orig, feature_names_imp = prepare_train_test_data(
             orig_data, orig_feature_col_name, imp_data, imp_feature_col_name, features)
 
-        groups = resolve_groups(orig_data, patient_map)
-        imp_groups = resolve_groups(imp_data, patient_map) if imp_data is not None else None
+        groups = resolve_exam_groups(orig_data)
 
-        # Keys used to keep imputed duplicates out of evaluated folds: patient
-        # identity when known, study identity otherwise.
-        orig_keys = groups if groups is not None else _study_ids(orig_data)
-        imp_keys = imp_groups if imp_groups is not None else _study_ids(imp_data)
+        # Keys that keep imputed duplicates out of evaluated folds. Always the
+        # study identity: an imputed row is a reconstruction of one exam.
+        orig_keys = _study_ids(orig_data)
+        imp_keys = _study_ids(imp_data)
 
         parameters = ModelParams()
         parameters.get_param_grid(class_type, unbalanced_type, n_iter=search_budget,
@@ -692,12 +691,12 @@ def load_selected_features():
 
 def best_params_table(orig_concat_tracesDF, orig_feature_col_name,
                       imp_concat_tracesDF, imp_feature_col_name, unbalanced_type, class_type,
-                      features, patient_map=None):
+                      features):
 
     (best_model, best_param, best_test_score, test_metrics,
      cm, shap_values, shap_input_df, important_features, shap_df) = find_best_class_params(
         orig_concat_tracesDF, orig_feature_col_name, imp_concat_tracesDF, imp_feature_col_name,
-        unbalanced_type, class_type, features, patient_map=patient_map)
+        unbalanced_type, class_type, features)
 
     if best_param is None or test_metrics is None:
         print("[ERROR] classification run produced no result; see traceback above.")

@@ -50,10 +50,10 @@ from dash_viewer.classification.model_params import ModelParams, DEFAULT_SEARCH_
 from dash_viewer.classification.machine_learning.utils_classifier import (
     DropUninformativeColumns, _augment_with_imputed, build_estimator_pipeline,
     choose_threshold, find_best_class_params, make_splitter,
-    prepare_train_test_data, resolve_groups)
+    prepare_train_test_data, resolve_exam_groups)
 
 
-def make_frame(n=200, informative=True, seed=0, n_features=8, studies_per_patient=1,
+def make_frame(n=200, informative=True, seed=0, n_features=8, duplicate_exams=0,
                missing_frac=0.0):
     """Build a frame shaped the way prepare_train_test_data expects.
 
@@ -78,9 +78,11 @@ def make_frame(n=200, informative=True, seed=0, n_features=8, studies_per_patien
     for i in range(n_features):
         frame[f'f{i}'] = X[:, i]
 
-    if studies_per_patient > 1:
-        # Duplicate each patient across several studies, as the real cohort does.
-        frame['Patient_ID'] = np.arange(n) // studies_per_patient
+    if duplicate_exams:
+        # A few exams contribute two rows, as echo_biomarkers_view does for
+        # studies recorded with two EDV sources: same study_nr, same label.
+        extra = frame.head(duplicate_exams).copy()
+        frame = pd.concat([frame, extra], ignore_index=True)
     return frame
 
 
@@ -205,24 +207,26 @@ def test_pipeline_imputes_missing_values():
     assert 'AUC_global' in metrics
 
 
-def test_resolve_groups_prefers_patient_id():
-    frame = make_frame(n=20, studies_per_patient=2)
-    groups = resolve_groups(frame)
+def test_no_grouping_when_every_row_is_a_distinct_exam():
+    """Patient_ID and study_nr are 1:1 here, so grouping is normally unnecessary.
+
+    Returning None keeps the plain stratified splitter, which balances classes
+    better than the grouped one.
+    """
+    assert resolve_exam_groups(make_frame(n=20)) is None
+
+
+def test_grouping_kicks_in_when_an_exam_has_several_rows():
+    frame = make_frame(n=20, duplicate_exams=3)
+    groups = resolve_exam_groups(frame)
     assert groups is not None
-    assert len(set(groups)) == 10
+    assert len(groups) == 23
+    assert len(set(groups)) == 20
 
 
-def test_resolve_groups_uses_patient_map_when_column_absent():
-    frame = make_frame(n=10)
-    mapping = {i: f'P{i // 2}' for i in range(10)}
-    groups = resolve_groups(frame, patient_map=mapping)
-    assert list(groups) == [f'P{i // 2}' for i in range(10)]
-
-
-def test_patients_never_straddle_a_fold():
-    """A patient's studies must land wholly on one side of every split."""
-    frame = make_frame(n=120, studies_per_patient=3)
-    groups = resolve_groups(frame)
+def test_duplicate_exam_rows_never_straddle_a_fold():
+    frame = make_frame(n=120, duplicate_exams=12)
+    groups = resolve_exam_groups(frame)
     y = frame['Total_Remodeling'].values
     X = frame[[c for c in frame.columns if c.startswith('f')]].values
 
@@ -231,21 +235,21 @@ def test_patients_never_straddle_a_fold():
         assert not set(groups[train_idx]) & set(groups[test_idx])
 
 
-def test_grouped_run_still_produces_metrics():
-    frame = make_frame(n=180, informative=True, studies_per_patient=2)
+def test_run_with_duplicate_exams_still_produces_metrics():
+    frame = make_frame(n=180, informative=True, duplicate_exams=8)
     metrics = run_pipeline(frame)[3]
     assert isinstance(metrics, dict)
     assert metrics['AUC_global'] > 0.6, metrics
 
 
 def test_identifier_columns_are_never_features():
-    """Patient_ID is carried for grouping; it must not reach the classifier.
+    """Identifier columns must not reach the classifier.
 
-    Outcome is recorded per patient, so a patient identifier is close to a
-    direct label lookup.
+    Patient_ID is 1:1 with study_nr here, so it is effectively a row index and
+    a near-perfect label proxy if a frame ever carries it through.
     """
-    frame = make_frame(n=40, studies_per_patient=2)
-    assert 'Patient_ID' in frame.columns
+    frame = make_frame(n=40)
+    frame['Patient_ID'] = np.arange(40)
 
     *_, feature_names_orig, _ = prepare_train_test_data(
         frame, 'f0', None, None, 'class_features')
