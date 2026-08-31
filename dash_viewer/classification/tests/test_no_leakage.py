@@ -257,3 +257,81 @@ def test_identifier_columns_are_never_features():
     assert 'Patient_ID' not in feature_names_orig
     assert 'study_nr' not in feature_names_orig
     assert 'Total_Remodeling' not in feature_names_orig
+
+
+# --- SHAP pooling -----------------------------------------------------------
+# shap is not installed here, so these use a stand-in Explanation with real
+# array semantics. They exercise this project's stacking and name-alignment
+# logic, not the shap library itself.
+
+class FakeExplanation:
+    def __init__(self, values, data, feature_names, base_values=None):
+        self.values = np.asarray(values)
+        self.data = np.asarray(data)
+        self.feature_names = list(feature_names)
+        self.base_values = base_values
+
+    def __getitem__(self, key):
+        rows, cols = key
+        return FakeExplanation(self.values[rows][:, cols], self.data[rows][:, cols],
+                               [self.feature_names[i] for i in cols])
+
+
+def _fold(n_rows, names, scale, seed):
+    rng = np.random.default_rng(seed)
+    values = rng.normal(size=(n_rows, len(names))) * scale
+    data = rng.normal(size=(n_rows, len(names)))
+    return FakeExplanation(values, data, names), pd.DataFrame(data, columns=names)
+
+
+def test_shap_stacks_every_fold_over_common_features():
+    from dash_viewer.classification.machine_learning.utils_classifier import (
+        _concatenate_fold_explanations)
+
+    names = ['a', 'b', 'c']
+    folds = [_fold(10, names, 1.0, 0), _fold(12, names, 1.0, 1), _fold(8, names, 1.0, 2)]
+
+    stacked, stacked_df, partial = _concatenate_fold_explanations(folds)
+
+    assert stacked.values.shape == (30, 3), stacked.values.shape
+    assert stacked_df.shape == (30, 3)
+    assert stacked.feature_names == names
+    assert partial == []
+    # every held-out row is explained exactly once
+    assert stacked.values.shape[0] == sum(len(df) for _, df in folds)
+
+
+def test_shap_stacking_realigns_columns_across_folds():
+    """Folds drop different columns, so positions must be matched by name."""
+    from dash_viewer.classification.machine_learning.utils_classifier import (
+        _concatenate_fold_explanations)
+
+    f1, d1 = _fold(6, ['a', 'b', 'c'], 1.0, 0)
+    f2, d2 = _fold(6, ['c', 'a'], 1.0, 1)  # reordered and missing 'b'
+
+    stacked, stacked_df, partial = _concatenate_fold_explanations([(f1, d1), (f2, d2)])
+
+    assert stacked.feature_names == ['a', 'c'], stacked.feature_names
+    assert partial == ['b']
+    # column 'a' of fold 2 must come from its own position, not position 0
+    np.testing.assert_allclose(stacked.values[6:, 0], f2.values[:, 1])
+    np.testing.assert_allclose(stacked.values[6:, 1], f2.values[:, 0])
+
+
+def test_shap_ranking_reflects_all_folds_not_the_last():
+    """A feature that only matters in early folds must still rank."""
+    from dash_viewer.classification.machine_learning.utils_classifier import (
+        _concatenate_fold_explanations)
+
+    names = ['strong_early', 'steady']
+    early = FakeExplanation(np.column_stack([np.full(20, 10.0), np.full(20, 1.0)]),
+                            np.zeros((20, 2)), names)
+    late = FakeExplanation(np.column_stack([np.zeros(20), np.full(20, 1.0)]),
+                           np.zeros((20, 2)), names)
+    stacked, _, _ = _concatenate_fold_explanations(
+        [(early, pd.DataFrame(early.data, columns=names)),
+         (late, pd.DataFrame(late.data, columns=names))])
+
+    mean_abs = np.abs(stacked.values).mean(axis=0)
+    # last fold alone would rank strong_early at 0; pooled it dominates
+    assert mean_abs[0] > mean_abs[1], mean_abs

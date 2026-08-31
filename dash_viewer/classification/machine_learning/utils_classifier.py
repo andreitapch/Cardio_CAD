@@ -1,3 +1,4 @@
+import copy
 import gc
 import json
 import traceback
@@ -25,8 +26,9 @@ from sklearn.metrics import matthews_corrcoef, recall_score
 from sklearn.metrics import roc_curve, auc, confusion_matrix
 from sklearn.metrics import precision_score, roc_auc_score, average_precision_score
 
-from dash_viewer.classification.machine_learning.utils.shap_explainer import compute_shap_timepoints, \
-    compute_shap_reduced, is_shap_supported_model, select_important_features
+from dash_viewer.classification.machine_learning.utils.shap_explainer import (
+    compute_shap_timepoints, compute_shap_reduced, is_shap_supported_model,
+    reduce_shap_to_class_1, select_important_features)
 from dash_viewer.classification.model_params import ModelParams, DEFAULT_SEARCH_BUDGET
 from pattern_recognition.utils.parameters_dics import dbTableNames
 
@@ -363,7 +365,7 @@ def find_best_class_params(orig_data, orig_feature_col_name, imp_data,
                    'Accuracy': [], 'AUC': [], 'PR-AUC': []}
         all_y_true, all_y_pred, all_y_proba = [], [], []
         per_fold_params, per_fold_inner_scores = [], []
-        last_fold = None
+        fold_records = []
 
         outer_splitter, outer_groups = make_splitter(n_outer_splits, groups,
                                                      random_state=random_state)
@@ -438,7 +440,7 @@ def find_best_class_params(orig_data, orig_feature_col_name, imp_data,
 
             per_fold_params.append(best_params)
             per_fold_inner_scores.append(round(best_inner_score, 4))
-            last_fold = (pipeline, X_te)
+            fold_records.append((pipeline, X_te))
 
             print(f"[Fold {fold + 1}] inner PR-AUC {best_inner_score:.4f} | "
                   f"threshold {threshold:.3f} | outer PR-AUC {metrics['PR-AUC'][-1]:.4f} | "
@@ -464,8 +466,8 @@ def find_best_class_params(orig_data, orig_feature_col_name, imp_data,
         best_params = _most_common_params(per_fold_params)
         best_test_score = float(np.mean(per_fold_inner_scores))
 
-        shap_values, shap_input_df, important_features, shap_df = _compute_shap_for_fold(
-            last_fold, class_type, features, feature_names_orig)
+        shap_values, shap_input_df, important_features, shap_df = _compute_shap_across_folds(
+            fold_records, class_type, features, feature_names_orig)
 
         final_model = clone(parameters.clf).set_params(**best_params)
 
@@ -499,45 +501,135 @@ def apply_preprocessing(pipeline, X):
     return X
 
 
-def _compute_shap_for_fold(last_fold, class_type, features, feature_names_orig):
-    """SHAP for the final outer fold's fitted pipeline.
+def _shap_for_one_fold(pipeline, X_val, class_type, feature_names_orig):
+    """SHAP explanation for a single fitted fold, reduced to the positive class.
 
-    The estimator is unwrapped from the pipeline and given the preprocessed
-    matrix it was actually trained on, with feature names narrowed to the
-    columns that survived the drop step.
+    The estimator is unwrapped from the pipeline and handed the preprocessed
+    matrix it was actually trained on, with names narrowed to the columns that
+    survived that fold's drop step.
+    """
+    model = pipeline.steps[-1][1]
+    X_transformed = apply_preprocessing(pipeline, X_val)
+    names = surviving_feature_names(pipeline, feature_names_orig)
 
-    Note: this explains one fold, not the ensemble of folds. Averaging SHAP
-    across folds would be more faithful but the models differ in shape.
+    if class_type in ['reconstructed_traces', 'reconstructed_traces_vac']:
+        shap_values, shap_input_df = compute_shap_timepoints(model, X_transformed, names)
+    else:
+        X_val_df = pd.DataFrame(X_transformed, columns=names)
+        shap_values, shap_input_df = compute_shap_reduced(model, X_val_df, names)
+
+    if shap_values is None or shap_input_df is None:
+        return None
+
+    return reduce_shap_to_class_1(shap_values), shap_input_df
+
+
+def _concatenate_fold_explanations(fold_explanations):
+    """Stack per-fold explanations over the features common to every fold.
+
+    Each fold drops its own uninformative columns, so the surviving feature
+    sets can differ. Only features present in all folds can be stacked; the
+    rest are reported separately by the caller. Column order follows the first
+    fold.
+
+    The stacked object is a copy of the first fold's Explanation with its arrays
+    replaced, rather than a freshly constructed one, so this does not depend on
+    a particular shap constructor signature.
+    """
+    common = set(fold_explanations[0][1].columns)
+    for _, shap_input_df in fold_explanations[1:]:
+        common &= set(shap_input_df.columns)
+    if not common:
+        return None, None, []
+
+    ordered = [c for c in fold_explanations[0][1].columns if c in common]
+    dropped_somewhere = [c for _, df in fold_explanations for c in df.columns
+                         if c not in common]
+
+    values, data = [], []
+    for shap_values, shap_input_df in fold_explanations:
+        idx = [shap_input_df.columns.get_loc(c) for c in ordered]
+        values.append(np.asarray(shap_values.values)[:, idx])
+        data.append(np.asarray(shap_input_df.values)[:, idx])
+
+    stacked = copy.deepcopy(fold_explanations[0][0])
+    stacked.values = np.vstack(values)
+    stacked.data = np.vstack(data)
+    stacked.feature_names = list(ordered)
+
+    base = getattr(stacked, 'base_values', None)
+    if base is not None:
+        base = np.asarray(base)
+        if base.ndim >= 1 and base.shape[0] == len(fold_explanations[0][1]):
+            # One base value per row: repeat it to match the stacked rows.
+            stacked.base_values = np.concatenate(
+                [np.asarray(getattr(sv, 'base_values', base)).reshape(-1)
+                 for sv, _ in fold_explanations])
+
+    stacked_df = pd.DataFrame(stacked.data, columns=ordered)
+    return stacked, stacked_df, sorted(set(dropped_somewhere))
+
+
+def _compute_shap_across_folds(fold_records, class_type, features, feature_names_orig,
+                               top_n=10):
+    """SHAP over every held-out fold, not just the last one.
+
+    Each outer fold fits its own hyperparameters and its own preprocessing, so
+    a single fold's ranking is one model's view of 1/k of the cohort. Stacking
+    the folds explains every patient exactly once, on the model that did not
+    train on them, which is the ranking that answers "what drove the
+    classifier".
     """
     empty = (None, None, [], pd.DataFrame())
-    if last_fold is None:
+    if not fold_records:
         return empty
 
-    pipeline, X_val = last_fold
-    model = pipeline.steps[-1][1]
-    if not is_shap_supported_model(model) or features in ['global_strain']:
+    if features in ['global_strain']:
+        return empty
+    if not is_shap_supported_model(fold_records[0][0]):
+        # KNN, decision trees and the spline/logistic pipeline are not covered
+        # by the explainers this project uses.
+        return empty
+
+    fold_explanations = []
+    for i, (pipeline, X_val) in enumerate(fold_records):
+        try:
+            result = _shap_for_one_fold(pipeline, X_val, class_type, feature_names_orig)
+            if result is not None:
+                fold_explanations.append(result)
+        except Exception as e:
+            print(f"[WARN] SHAP failed on fold {i + 1}: {e}")
+
+    if not fold_explanations:
+        print("[Error] SHAP produced nothing on any fold.")
         return empty
 
     try:
-        X_val = apply_preprocessing(pipeline, X_val)
-        feature_names_orig = surviving_feature_names(pipeline, feature_names_orig)
-
-        if class_type in ['reconstructed_traces', 'reconstructed_traces_vac']:
-            shap_values, shap_input_df = compute_shap_timepoints(model, X_val, feature_names_orig)
-        else:
-            X_val_df = pd.DataFrame(X_val, columns=feature_names_orig)
-            shap_values, shap_input_df = compute_shap_reduced(model, X_val_df, feature_names_orig)
-
-        if shap_input_df is None:
+        shap_values, shap_input_df, partial = _concatenate_fold_explanations(fold_explanations)
+        if shap_values is None:
+            print("[Error] folds share no common features; cannot stack SHAP.")
             return empty
 
-        important_features, shap_df = select_important_features(shap_values, shap_input_df.columns, 10)
-        print(f"[INFO] Retained {len(important_features)} important features "
-              f"out of {len(shap_input_df.columns)}")
+        if partial:
+            print(f"[INFO] {len(partial)} feature(s) dropped in at least one fold and "
+                  f"excluded from the pooled ranking: {', '.join(map(str, partial[:8]))}"
+                  + (' ...' if len(partial) > 8 else ''))
+
+        important_features, shap_df = select_important_features(
+            shap_values, shap_input_df.columns, top_n)
+
+        # select_important_features returns (None, None) on failure.
+        important_features = important_features or []
+        if shap_df is None:
+            shap_df = pd.DataFrame()
+
+        print(f"[INFO] SHAP pooled over {len(fold_explanations)} folds "
+              f"({shap_values.values.shape[0]} held-out rows); "
+              f"kept top {len(important_features)} of {len(shap_input_df.columns)} features")
         return shap_values, shap_input_df, important_features, shap_df
 
     except Exception as e:
-        print(f"[Error] SHAP computation failed: {e}")
+        print(f"[Error] SHAP aggregation failed: {e}")
         return empty
 
 
