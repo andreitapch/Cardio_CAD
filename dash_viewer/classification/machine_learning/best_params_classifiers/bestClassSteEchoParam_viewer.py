@@ -13,7 +13,7 @@ from dash_viewer.classification.load_prepare_data import get_concat_18_segments,
 
 
 from dash_viewer.classification.machine_learning.utils_classifier import get_confusion_matrix_table, \
-    find_best_class_params, convert_echoParam_values, preprocess_data, \
+    best_params_table, convert_echoParam_values, preprocess_data, \
     load_selected_features
 
 gc.enable()
@@ -69,40 +69,6 @@ def update_output(isImputed, best_neighbors, data_source, unbalanced_type, encod
         return dash.no_update, dash.no_update, dash.no_update
 
 
-def best_params_table(orig_concat_tracesDF, orig_feature_col_name,
-                      imp_concat_tracesDF, imp_feature_col_name, unbalanced_type, class_type):
-
-    (best_model, best_param, best_test_score,
-     test_metrics, cm) = find_best_class_params(orig_concat_tracesDF, orig_feature_col_name,
-                                                             imp_concat_tracesDF,
-                                                             imp_feature_col_name,
-                                                             unbalanced_type,
-                                                             class_type)
-
-    best_param_df = pd.DataFrame([best_param], columns=best_param.keys())
-    test_metrics_df = pd.DataFrame([test_metrics],
-                                   columns=test_metrics.keys()).round(4)
-
-    best_score = round(best_test_score, 4)
-    best_param_df['Best Score:'] = [best_score]
-
-    best_param_table = dash_table.DataTable(
-        data=best_param_df.to_dict('records'),
-        columns=[{'name': i, 'id': i} for i in best_param_df.columns],
-        style_cell={'textAlign': 'left'},
-    )
-
-    test_metrics_table = dash_table.DataTable(
-        data=test_metrics_df.to_dict('records'),
-        columns=[{'name': i, 'id': i} for i in test_metrics_df.columns],
-        style_cell={'textAlign': 'left'},
-    )
-    cm_table_fig = get_confusion_matrix_table(cm) if cm is not None else None
-
-
-    return best_param, best_param_table, test_metrics_table, cm_table_fig
-
-
 def load_traces_df(dataOrig_type, isImputed, unbalanced_type, class_type, data_source, encoding):
     imp_concat_tracesDF, orig_concat_tracesDF,echoParam_feat = None, None, None
     filter_by_type = select_data_type(dataOrig_type, encoding)
@@ -149,11 +115,10 @@ def load_traces_df(dataOrig_type, isImputed, unbalanced_type, class_type, data_s
     imp_merged_df = imp_concat_tracesDF.merge(echoParam_feat, on='study_nr', how='left', suffixes=('_orig', '_echo'))
     features = None
 
-    best_param, param_table, test_metrics_table, cm_table_fig = best_params_table(orig_merged_df,
-                                                                                  orig_feature_col_name,
-                                                                                  imp_merged_df,
-                                                                                  imp_feature_col_name,
-                                                                                  unbalanced_type, class_type, features)
+    (best_param, param_table, test_metrics_table, cm, cm_table_fig,
+     shap_values, shap_input_df, important_features, shap_df) = best_params_table(
+        orig_merged_df, orig_feature_col_name, imp_merged_df, imp_feature_col_name,
+        unbalanced_type, class_type, features)
     return param_table, test_metrics_table, cm_table_fig
 
 

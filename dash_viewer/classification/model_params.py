@@ -5,7 +5,13 @@ from sklearn.tree import DecisionTreeClassifier
 from xgboost import XGBClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
-from itertools import product
+from sklearn.model_selection import ParameterGrid, ParameterSampler
+
+
+# Exhaustive search over these grids is 200-6144 fits per CV fold. With nested CV
+# that becomes intractable, so grids larger than this are randomly subsampled.
+# Set n_iter=None in get_param_grid() to force the full exhaustive grid.
+DEFAULT_SEARCH_BUDGET = 60
 
 
 class ModelParams:
@@ -14,7 +20,7 @@ class ModelParams:
         self.param_grid = None
         self.param_combinations = None
 
-    def get_param_grid(self, class_type, unbalanced_type):
+    def get_param_grid(self, class_type, unbalanced_type, n_iter=DEFAULT_SEARCH_BUDGET, random_state=42):
         if class_type == 'KNN_class':
             self.param_grid = {
                 'n_neighbors': list(range(1, 51, 2)),
@@ -148,7 +154,11 @@ class ModelParams:
                 'n_jobs': [-1]
             }
 
-            self.clf = XGBClassifier(random_state=42, use_label_encoder=False, eval_metric='mlogloss',objective='binary:logistic' )
+            # eval_metric was 'mlogloss' (multiclass) against a binary objective;
+            # 'aucpr' matches the PR-AUC this pipeline selects on. use_label_encoder
+            # was removed in xgboost 2.0 and is no longer passed.
+            self.clf = XGBClassifier(random_state=42, eval_metric='aucpr',
+                                     objective='binary:logistic')
 
 
         elif class_type == 'LogisticRegression_class':
@@ -193,5 +203,16 @@ class ModelParams:
         else:
             raise ValueError(f"Unknown classifier type: {class_type}")
 
-        self.param_combinations = [dict(zip(self.param_grid.keys(), v))
-                                   for v in product(*self.param_grid.values())]
+        # param_grid is a dict for most models but a list of dicts for
+        # LogisticRegression, where penalty/solver combinations are not a cross
+        # product. ParameterGrid handles both; the old zip(product(...)) call
+        # raised AttributeError on the list form, which the caller silently
+        # swallowed, so LogisticRegression never actually ran.
+        full_grid = ParameterGrid(self.param_grid)
+
+        if n_iter is not None and len(full_grid) > n_iter:
+            self.param_combinations = list(
+                ParameterSampler(self.param_grid, n_iter=n_iter, random_state=random_state)
+            )
+        else:
+            self.param_combinations = list(full_grid)

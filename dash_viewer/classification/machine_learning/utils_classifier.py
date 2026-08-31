@@ -1,4 +1,8 @@
 import gc
+import json
+import traceback
+from collections import Counter
+
 import numpy as np
 import pandas as pd
 from numba import njit
@@ -9,6 +13,7 @@ from imblearn.over_sampling import SMOTE
 from imblearn.over_sampling import ADASYN
 from imblearn.under_sampling import RandomUnderSampler
 
+from sklearn.base import clone
 from sklearn.impute import KNNImputer
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import precision_recall_curve
@@ -20,25 +25,66 @@ from sklearn.metrics import precision_score, roc_auc_score, average_precision_sc
 
 from dash_viewer.classification.machine_learning.utils.shap_explainer import compute_shap_timepoints, \
     compute_shap_reduced, is_shap_supported_model, select_important_features
-from dash_viewer.classification.model_params import ModelParams
+from dash_viewer.classification.model_params import ModelParams, DEFAULT_SEARCH_BUDGET
 from pattern_recognition.utils.parameters_dics import dbTableNames
 
 
-def get_best_metrics(X_test, X_train, cv_scores, model, unbalanced_type, y_test, y_train):
+def predict_scores(model, X):
+    """Continuous scores for the positive class, whatever the estimator exposes."""
+    if hasattr(model, "predict_proba"):
+        return model.predict_proba(X)[:, 1]
+    if hasattr(model, "decision_function"):
+        return model.decision_function(X)
+    raise ValueError("The model does not support probability prediction.")
+
+
+def get_best_metrics(X_test, X_train, model, unbalanced_type, y_test, y_train):
+    """Threshold-free score for one train/test pair, used to rank hyperparameters."""
     X_resampled, y_resampled = get_samples(X_train, unbalanced_type, y_train)
     model.fit(X_resampled, y_resampled)
-    y_pred = model.predict(X_test)
-    if hasattr(model, "predict_proba"):
-        y_pred_proba = model.predict_proba(X_test)[:, 1]
-    elif hasattr(model, "decision_function"):
-        y_pred_proba = model.decision_function(X_test)
-    else:
-        raise ValueError("The model does not support probability prediction.")
+    y_pred_proba = predict_scores(model, X_test)
+    return average_precision_score(y_test, y_pred_proba)
 
-    metric = average_precision_score(y_test, y_pred_proba)
-    # metric = roc_auc_score(y_test, y_pred_proba)
-    # metric = f1_score(y_test, y_pred)
-    return metric
+
+def choose_threshold(y_true, y_scores):
+    """Cutoff maximising F1 on the data given.
+
+    Must only ever be called on TRAINING data. Calling it on the fold being
+    scored fits the cutoff to the labels it is then graded against, which
+    inflates every threshold-dependent metric.
+    """
+    prec, rec, thr = precision_recall_curve(y_true, y_scores)
+    f_scores = (2 * prec * rec) / (prec + rec + 1e-12)
+    best_idx = int(np.nanargmax(f_scores))
+    # precision_recall_curve returns len(thr) == len(prec) - 1, so the last
+    # point of the curve has no threshold of its own. Clamp instead of the
+    # previous best_idx - 1, which shifted every other index by one.
+    return thr[min(best_idx, len(thr) - 1)]
+
+
+def fit_and_threshold(model, X_train, y_train, unbalanced_type, random_state=42):
+    """Fit on the training fold and pick a cutoff without touching held-out data.
+
+    The cutoff is chosen on an inner split of the training fold, then the model
+    is refit on the full training fold so no training data is wasted.
+    """
+    X_res, y_res = get_samples(X_train, unbalanced_type, y_train)
+
+    threshold = 0.5
+    try:
+        inner = StratifiedKFold(n_splits=3, shuffle=True, random_state=random_state)
+        inner_train, inner_cal = next(iter(inner.split(X_train, y_train)))
+
+        X_inner_res, y_inner_res = get_samples(X_train[inner_train], unbalanced_type,
+                                               y_train[inner_train])
+        model.fit(X_inner_res, y_inner_res)
+        cal_scores = predict_scores(model, X_train[inner_cal])
+        threshold = choose_threshold(y_train[inner_cal], cal_scores)
+    except Exception as e:
+        print(f"[WARN] threshold calibration failed ({e}); falling back to 0.5")
+
+    model.fit(X_res, y_res)
+    return model, threshold
 
 
 def prepare_train_test_data(orig_data, orig_feature_col_name, imp_data, imp_feature_col_name, feature):
@@ -128,221 +174,225 @@ def get_samples(X_train, unbalanced_type, y_train):
     return X_resampled, y_resampled
 
 
-def find_best_class_params(orig_data, orig_feature_col_name, imp_data,
-                           imp_feature_col_name, unbalanced_type, class_type, features):
-    try:
-        parameters = ModelParams()
-        parameters.get_param_grid(class_type, unbalanced_type)
-        X_imp, y_imp, X_orig, y_orig = None, None, None, None
-        skf, splits = None, None
-        best_params = None
-        best_test_score = -np.inf
-        best_model = None
+def _study_ids(df):
+    """Patient/study identifiers aligned row-for-row with the feature matrix.
 
+    prepare_train_test_data() never reorders rows, so positional indexing into
+    this array matches the X it returns.
+    """
+    if df is None or 'study_nr' not in df.columns:
+        return None
+    return df['study_nr'].values
+
+
+def _augment_with_imputed(X_train, y_train, X_imp, y_imp, imp_studies, held_out_studies):
+    """Add imputed rows to a training fold, minus any belonging to held-out studies.
+
+    The imputed frame covers the same cohort as the original one, so adding it
+    wholesale (the previous behaviour) put a near-duplicate of every held-out
+    patient into training. Rows whose study_nr is being evaluated are dropped.
+    """
+    if X_imp is None:
+        return X_train, y_train
+
+    if imp_studies is None:
+        print("[WARN] imputed frame has no study_nr column - cannot verify patient "
+              "separation; imputed rows are being dropped rather than leaked.")
+        return X_train, y_train
+
+    keep = ~np.isin(imp_studies, list(held_out_studies))
+    if not keep.any():
+        return X_train, y_train
+
+    return np.vstack((X_imp[keep], X_train)), np.concatenate((y_imp[keep], y_train))
+
+
+def find_best_class_params(orig_data, orig_feature_col_name, imp_data,
+                           imp_feature_col_name, unbalanced_type, class_type, features,
+                           n_outer_splits=5, n_inner_splits=5,
+                           search_budget=DEFAULT_SEARCH_BUDGET, random_state=42):
+    """Nested cross-validation: hyperparameters chosen inside each outer fold.
+
+    The previous implementation selected hyperparameters on one set of 5 folds
+    and then reported metrics on those same folds, so the best-of-N maximum was
+    reported as if it were an unbiased estimate. Here the inner loop only ever
+    sees the outer training split, and the reported metrics come from outer test
+    folds that took no part in selection.
+    """
+    try:
         X_imp, y_imp, X_orig, y_orig, feature_names_orig, feature_names_imp = prepare_train_test_data(
             orig_data, orig_feature_col_name, imp_data, imp_feature_col_name, features)
 
-        for param_combination in parameters.param_combinations:
-            model = parameters.clf.set_params(**param_combination)
-            cv_scores = []
+        orig_studies = _study_ids(orig_data)
+        imp_studies = _study_ids(imp_data)
 
-            skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-            splits = list(skf.split(X_orig, y_orig))
+        parameters = ModelParams()
+        parameters.get_param_grid(class_type, unbalanced_type, n_iter=search_budget,
+                                  random_state=random_state)
 
-            # early_stop_threshold = 0.35
+        metrics = {'MCC': [], 'Precision': [], 'Recall': [], 'F1': [],
+                   'Accuracy': [], 'AUC': [], 'PR-AUC': []}
+        all_y_true, all_y_pred, all_y_proba = [], [], []
+        per_fold_params, per_fold_inner_scores = [], []
+        last_fold = None
 
-            for train_index, test_index in splits:
-                X_train, X_test = X_orig[train_index], X_orig[test_index]
-                y_train, y_test = y_orig[train_index], y_orig[test_index]
+        outer = StratifiedKFold(n_splits=n_outer_splits, shuffle=True, random_state=random_state)
+        outer_splits = list(outer.split(X_orig, y_orig))
 
-                if imp_data is not None:
-                    X_train = np.vstack((X_imp, X_train))
-                    y_train = np.concatenate((y_imp, y_train))
+        for fold, (outer_train, outer_test) in enumerate(outer_splits):
+            X_tr, y_tr = X_orig[outer_train], y_orig[outer_train]
+            X_te, y_te = X_orig[outer_test], y_orig[outer_test]
 
-                score = get_best_metrics(X_test, X_train, cv_scores, model, unbalanced_type, y_test, y_train)
-                cv_scores.append(score)
+            outer_test_studies = set(orig_studies[outer_test]) if orig_studies is not None else set()
 
-                # if np.mean(cv_scores) < early_stop_threshold:
-                #     break
+            # ---- inner loop: hyperparameter selection, outer training data only ----
+            inner = StratifiedKFold(n_splits=n_inner_splits, shuffle=True,
+                                    random_state=random_state)
+            inner_splits = list(inner.split(X_tr, y_tr))
 
-            # mean_cv_score = np.mean(cv_scores)
-            # in find_best_class_params, after the fold loop:
-            mean_cv_score = np.mean([s for s in cv_scores if not np.isnan(s)])
+            best_inner_score, best_params = -np.inf, None
 
+            for param_combination in parameters.param_combinations:
+                inner_scores = []
+                for inner_train, inner_test in inner_splits:
+                    Xi_tr, yi_tr = X_tr[inner_train], y_tr[inner_train]
+                    Xi_te, yi_te = X_tr[inner_test], y_tr[inner_test]
 
-            if mean_cv_score > best_test_score:
-                best_test_score = mean_cv_score
-                best_params = param_combination
-                best_model = model
+                    held_out = set(outer_test_studies)
+                    if orig_studies is not None:
+                        held_out |= set(orig_studies[outer_train][inner_test])
+                    Xi_tr, yi_tr = _augment_with_imputed(Xi_tr, yi_tr, X_imp, y_imp,
+                                                         imp_studies, held_out)
 
-        if best_model:
-            if imp_data is not None:
-                isImp = True
-                test_metrics, cm, shap_values, shap_input_df, important_features, shap_df = apply_best_params_with_metrics(best_params, X_imp, y_imp, unbalanced_type,
-                                                                  class_type, splits, X_orig, y_orig, isImp,
-                                                                  feature_names_orig, feature_names_imp, features)
-            else:
-                isImp = False
-                var = None
-                test_metrics, cm, shap_values, shap_input_df, important_features, shap_df  = apply_best_params_with_metrics(best_params, var, var, unbalanced_type,
-                                                                  class_type, var, X_orig, y_orig, isImp,
-                                                                  feature_names_orig, feature_names_imp, features)
+                    model = clone(parameters.clf).set_params(**param_combination)
+                    try:
+                        inner_scores.append(
+                            get_best_metrics(Xi_te, Xi_tr, model, unbalanced_type, yi_te, yi_tr))
+                    except Exception as e:
+                        print(f"[WARN] fold {fold + 1} params {param_combination} failed: {e}")
+                        inner_scores.append(np.nan)
 
+                valid = [s for s in inner_scores if not np.isnan(s)]
+                if not valid:
+                    continue
+                mean_inner = float(np.mean(valid))
 
+                if mean_inner > best_inner_score:
+                    best_inner_score, best_params = mean_inner, param_combination
 
-            return best_model, best_params, best_test_score, test_metrics, cm, shap_values, shap_input_df, important_features, shap_df
-        else:
+            if best_params is None:
+                print(f"[WARN] outer fold {fold + 1}: no parameter combination scored; skipping.")
+                continue
+
+            # ---- outer evaluation: refit + threshold on training data only ----
+            X_tr_aug, y_tr_aug = _augment_with_imputed(X_tr, y_tr, X_imp, y_imp,
+                                                       imp_studies, outer_test_studies)
+
+            model = clone(parameters.clf).set_params(**best_params)
+            model, threshold = fit_and_threshold(model, X_tr_aug, y_tr_aug, unbalanced_type,
+                                                 random_state=random_state)
+
+            y_pred_proba = predict_scores(model, X_te)
+            y_pred = (y_pred_proba >= threshold).astype(int)
+
+            calculate_final_metrics(metrics, y_te, y_pred, y_pred_proba)
+            all_y_true.extend(y_te)
+            all_y_pred.extend(y_pred)
+            all_y_proba.extend(y_pred_proba)
+
+            per_fold_params.append(best_params)
+            per_fold_inner_scores.append(round(best_inner_score, 4))
+            last_fold = (model, X_te)
+
+            print(f"[Fold {fold + 1}] inner PR-AUC {best_inner_score:.4f} | "
+                  f"threshold {threshold:.3f} | outer PR-AUC {metrics['PR-AUC'][-1]:.4f} | "
+                  f"predicted {np.bincount(y_pred, minlength=2).tolist()}")
+
+        if not all_y_true:
+            print("[ERROR] no outer fold produced predictions.")
             return None, None, None, None, None, None, None, None, None
 
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        return None, None, None, None, None, None, None, None, None
+        all_y_true = np.asarray(all_y_true)
+        all_y_proba = np.asarray(all_y_proba)
 
-    finally:
-        for var in ['X_imp', 'y_imp', 'X_orig', 'y_orig', 'X_train', 'y_train', 'X_test', 'y_test']:
-            if var in locals():
-                del locals()[var]
-        gc.collect()
-
-
-def apply_best_params_with_metrics(best_params, X, y, unbalanced_type,class_type,
-                                   splits, X_orig, y_orig, isImp, feature_names_orig,
-                                   feature_names_imp, features):
-    shap_values = None
-    shap_input_df = None
-
-    parameters = ModelParams()
-    parameters.get_param_grid(class_type, unbalanced_type)
-    model = parameters.clf.set_params(**best_params)
-    return_shap = is_shap_supported_model(model)
-    metrics = {
-        'MCC': [], 'Precision': [], 'Recall': [], 'F1': [],
-        'Accuracy': [], 'AUC': [], 'STD-AUC': [], 'PR-AUC': []
-    }
-
-    all_y_true = []
-    all_y_pred = []
-    all_y_proba = []
-
-    try:
-        if isImp:
-            for i, (train_index, test_index) in enumerate(splits):
-                X_train = np.vstack((X, X_orig[train_index]))
-                y_train = np.concatenate((y, y_orig[train_index]))
-                X_val = X_orig[test_index]
-                y_val = y_orig[test_index]
-
-                X_resampled, y_resampled = get_samples(X_train, unbalanced_type, y_train)
-                model.fit(X_resampled, y_resampled)
-
-                # y_pred_val = model.predict(X_val)
-                y_pred_proba = model.predict_proba(X_val)[:, 1]
-                # fpr, tpr, thresholds = roc_curve(y_val, y_pred_proba)
-                # j_scores = tpr - fpr
-                # best_thresh = thresholds[np.argmax(j_scores)]
-
-                prec, rec, thr = precision_recall_curve(y_val, y_pred_proba)
-                f_scores = (2 * prec * rec) / (prec + rec + 1e-12)
-                best_idx = np.nanargmax(f_scores)
-                best_thresh = thr[max(best_idx - 1, 0)]
-
-                y_pred_val = (y_pred_proba >= best_thresh).astype(int)
-
-                # print(f"[Fold {i + 1}] Probabilities stats - min: {np.min(y_pred_proba):.3f}, max: {np.max(y_pred_proba):.3f}")
-                # print(f"Predictions: {np.bincount(y_pred_val)}")
-
-                calculate_final_metrics(metrics, y_val, y_pred_val, y_pred_proba)
-                all_y_true.extend(y_val)
-                all_y_pred.extend(y_pred_val)
-                all_y_proba.extend(y_pred_proba)
-
-        else:
-            # skf = StratifiedKFold(n_splits=5, shuffle=False)
-            # for i, (train_index, test_index) in enumerate(skf.split(X_orig, y_orig)):
-            for i, (train_index, test_index) in enumerate(splits):
-
-                X_train, X_val = X_orig[train_index], X_orig[test_index]
-                y_train, y_val = y_orig[train_index], y_orig[test_index]
-
-                X_resampled, y_resampled = get_samples(X_train, unbalanced_type, y_train)
-                model.fit(X_resampled, y_resampled)
-
-                # Get predicted probabilities
-                y_pred_proba = model.predict_proba(X_val)[:, 1]
-
-                # fpr, tpr, thresholds = roc_curve(y_val, y_pred_proba)
-                # j_scores = tpr - fpr
-                # best_thresh = thresholds[np.argmax(j_scores)]
-
-                prec, rec, thr = precision_recall_curve(y_val, y_pred_proba)
-                f_scores = (2 * prec * rec) / (prec + rec + 1e-12)
-                best_idx = np.nanargmax(f_scores)
-                best_thresh = thr[max(best_idx - 1, 0)]
-
-                y_pred_val = (y_pred_proba >= best_thresh).astype(int)
-
-                print(
-                    f"[Fold {i + 1}] Probabilities stats - min: {np.min(y_pred_proba):.3f}, max: {np.max(y_pred_proba):.3f}")
-                print(f"Predictions: {np.bincount(y_pred_val)}")  # Check balance
-
-                calculate_final_metrics(metrics, y_val, y_pred_val, y_pred_proba)
-                all_y_true.extend(y_val)
-                all_y_pred.extend(y_pred_val)
-                all_y_proba.extend(y_pred_proba)
-
-        all_y_true = np.array(all_y_true)
-        all_y_proba = np.array(all_y_proba)
-
-        global_pr_auc = average_precision_score(all_y_true, all_y_proba)
-        global_roc_auc = roc_auc_score(all_y_true, all_y_proba)
-        # mean_metrics = {metric: np.mean(scores) for metric, scores in metrics.items()}
-
-        mean_metrics = {m: np.mean(v) for m, v in metrics.items()}
-        mean_metrics['STD-AUC'] = round(np.std(metrics['AUC']), 4)
-        mean_metrics['PR-AUC_global'] = round(global_pr_auc, 4)
-        mean_metrics['AUC_global'] = round(global_roc_auc, 4)
+        mean_metrics = {m: round(float(np.mean(v)), 4) for m, v in metrics.items() if v}
+        mean_metrics['STD-AUC'] = round(float(np.std(metrics['AUC'])), 4)
+        mean_metrics['PR-AUC_global'] = round(average_precision_score(all_y_true, all_y_proba), 4)
+        mean_metrics['AUC_global'] = round(roc_auc_score(all_y_true, all_y_proba), 4)
 
         cm = confusion_matrix(all_y_true, all_y_pred)
 
-        if return_shap and features not in ['global_strain']:#'class_features',
-            try:
-                if class_type in ['reconstructed_traces', 'reconstructed_traces_vac']:
-                    shap_values, shap_input_df = compute_shap_timepoints(model, X_val, feature_names_orig)
-                else:
-                    X_val_df = pd.DataFrame(X_val, columns=feature_names_orig)
-                    shap_values, shap_input_df = compute_shap_reduced(model, X_val_df, feature_names_orig)
+        # Hyperparameters now vary per outer fold, so there is no single "best"
+        # set. The modal choice is reported for display; the honest performance
+        # number is mean_metrics, not a refit on all data.
+        best_params = _most_common_params(per_fold_params)
+        best_test_score = float(np.mean(per_fold_inner_scores))
 
-                if shap_input_df is not None:
-                    important_features, shap_df = select_important_features(shap_values, shap_input_df.columns, 10)
-                else:
-                    important_features, shap_df = [], pd.DataFrame()
+        shap_values, shap_input_df, important_features, shap_df = _compute_shap_for_fold(
+            last_fold, class_type, features, feature_names_orig)
 
-                print(
-                    f"[INFO] Retained {len(important_features)} important features out of {len(shap_input_df.columns)}")
+        final_model = clone(parameters.clf).set_params(**best_params)
 
-            except Exception as e:
-                print(f"[Error] SHAP computation failed: {e}")
-
-            return mean_metrics, cm, shap_values, shap_input_df, important_features, shap_df
-        else:
-            return  mean_metrics, cm, None, None, [], pd.DataFrame()
+        return (final_model, best_params, best_test_score, mean_metrics, cm,
+                shap_values, shap_input_df, important_features, shap_df)
 
     except Exception as e:
-        print(f"[ERROR] apply_best_params_with_metrics failed: {e}")
-        return {}, None, None, None, None, None
+        traceback.print_exc()
+        print(f"An error occurred in find_best_class_params: {e}")
+        return None, None, None, None, None, None, None, None, None
 
     finally:
-        for var in ['X', 'y', 'X_orig', 'y_orig', 'X_train', 'X_val', 'y_train', 'y_val']:
-            if var in locals():
-                del locals()[var]
         gc.collect()
 
 
+def _most_common_params(per_fold_params):
+    """Most frequently selected parameter set across outer folds."""
+    counts = Counter(json.dumps(p, sort_keys=True, default=str) for p in per_fold_params)
+    return json.loads(counts.most_common(1)[0][0])
+
+
+def _compute_shap_for_fold(last_fold, class_type, features, feature_names_orig):
+    """SHAP for the final outer fold's model.
+
+    Note: this explains one fold, not the ensemble of folds. Averaging SHAP
+    across folds would be more faithful but the models differ in shape.
+    """
+    empty = (None, None, [], pd.DataFrame())
+    if last_fold is None:
+        return empty
+
+    model, X_val = last_fold
+    if not is_shap_supported_model(model) or features in ['global_strain']:
+        return empty
+
+    try:
+        if class_type in ['reconstructed_traces', 'reconstructed_traces_vac']:
+            shap_values, shap_input_df = compute_shap_timepoints(model, X_val, feature_names_orig)
+        else:
+            X_val_df = pd.DataFrame(X_val, columns=feature_names_orig)
+            shap_values, shap_input_df = compute_shap_reduced(model, X_val_df, feature_names_orig)
+
+        if shap_input_df is None:
+            return empty
+
+        important_features, shap_df = select_important_features(shap_values, shap_input_df.columns, 10)
+        print(f"[INFO] Retained {len(important_features)} important features "
+              f"out of {len(shap_input_df.columns)}")
+        return shap_values, shap_input_df, important_features, shap_df
+
+    except Exception as e:
+        print(f"[Error] SHAP computation failed: {e}")
+        return empty
+
+
 def calculate_final_metrics(metrics, y_true, y_pred, y_pred_proba):
+    # average='binary' reports the positive (remodeling) class. The previous
+    # average='weighted' blended both classes by prevalence, so on an imbalanced
+    # cohort it was dominated by the majority class and read far too high.
     metrics['MCC'].append(round(matthews_corrcoef(y_true, y_pred), 4))
-    metrics['Precision'].append(round(precision_score(y_true, y_pred, average='weighted', zero_division=0), 4))
-    metrics['Recall'].append(round(recall_score(y_true, y_pred, average='weighted', zero_division=0), 4))
-    metrics['F1'].append(round(f1_score(y_true, y_pred, average='weighted', zero_division=0), 4))
+    metrics['Precision'].append(round(precision_score(y_true, y_pred, average='binary', pos_label=1, zero_division=0), 4))
+    metrics['Recall'].append(round(recall_score(y_true, y_pred, average='binary', pos_label=1, zero_division=0), 4))
+    metrics['F1'].append(round(f1_score(y_true, y_pred, average='binary', pos_label=1, zero_division=0), 4))
     metrics['Accuracy'].append(round(accuracy_score(y_true, y_pred), 4))
     metrics['PR-AUC'].append(round(average_precision_score(y_true, y_pred_proba), 4))
 
@@ -481,12 +531,17 @@ def best_params_table(orig_concat_tracesDF, orig_feature_col_name,
                                                                                          class_type,
                                                                                          features)
 
+    if best_param is None or test_metrics is None:
+        print("[ERROR] classification run produced no result; see traceback above.")
+        return None, None, None, None, None, None, None, [], pd.DataFrame()
+
     best_param_df = pd.DataFrame([best_param], columns=best_param.keys())
     test_metrics_df = pd.DataFrame([test_metrics],
                                    columns=test_metrics.keys()).round(4)
 
-    best_score = round(best_test_score, 4)
-    best_param_df['PR-AUC:'] = [best_score]
+    # Inner-loop selection score, NOT the reported performance. The honest
+    # numbers are in test_metrics, which come from held-out outer folds.
+    best_param_df['Inner PR-AUC (selection):'] = [round(best_test_score, 4)]
 
     best_param_table = dash_table.DataTable(
         data=best_param_df.to_dict('records'),
