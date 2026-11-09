@@ -1,0 +1,196 @@
+{
+  "checkpoint": null,
+  "weights": "outdoor",
+  "in_vivo": {
+    "in_vivo": [
+      {
+        "key": "Retest_dataset/IV02/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 3.608847279933326,
+        "closure_px_mean": 4.238077018573401,
+        "lost": 47
+      },
+      {
+        "key": "Retest_dataset/IV02/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 3.654796942999868,
+        "closure_px_mean": 1.8865262276637424,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV02/4ch",
+        "pairing": "strided",
+        "vs_mitt_px_median": 4.6422226849727855,
+        "closure_px_mean": 12.472537621773533,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV03/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 3.6824860668091253,
+        "closure_px_mean": 4.717323960838888,
+        "lost": 35
+      },
+      {
+        "key": "Retest_dataset/IV03/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 1.8706482196128627,
+        "closure_px_mean": 5.560260214467855,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV03/4ch",
+        "pairing": "strided",
+        "vs_mitt_px_median": 3.147095653018703,
+        "closure_px_mean": 6.353302493595225,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV04/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 2.9070471173418095,
+        "closure_px_mean": 4.409678914380319,
+        "lost": 50
+      },
+      {
+        "key": "Retest_dataset/IV04/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 2.7852477168994927,
+        "closure_px_mean": 2.2237440714527295,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV04/4ch",
+        "pairing": "strided",
+        "vs_mitt_px_median": 3.0111220596111052,
+        "closure_px_mean": 11.465212032261627,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV05/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 4.903451653524968,
+        "closure_px_mean": 5.811436108566809,
+        "lost": 50
+      },
+      {
+        "key": "Retest_dataset/IV05/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 3.698639432141177,
+        "closure_px_mean": 4.026185695601744,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV05/4ch",
+        "pairing": "strided",
+        "vs_mitt_px_median": 2.6267239717269084,
+        "closure_px_mean": NaN,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV06/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 4.2840536307067465,
+        "closure_px_mean": 4.445630983525174,
+        "lost": 46
+      },
+      {
+        "key": "Retest_dataset/IV06/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 3.7668273435474866,
+        "closure_px_mean": 6.509242898680134,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV06/4ch",
+        "pairing": "strided",
+        "vs_mitt_px_median": 6.7365677660360435,
+        "closure_px_mean": 13.187052885580911,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV07/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 4.400932461118417,
+        "closure_px_mean": 12.051594723059353,
+        "lost": 47
+      },
+      {
+        "key": "Retest_dataset/IV07/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 3.8167994136786194,
+        "closure_px_mean": 18.487073369312718,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV07/4ch",
+        "pairing": "strided",
+        "vs_mitt_px_median": 1.7094874729584864,
+        "closure_px_mean": NaN,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV09/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 3.458132838381861,
+        "closure_px_mean": 5.43886593157992,
+        "lost": 42
+      },
+      {
+        "key": "Retest_dataset/IV09/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 2.128856189120689,
+        "closure_px_mean": 2.8626218796814777,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV09/4ch",
+        "pairing": "strided",
+        "vs_mitt_px_median": 1.9014472145667676,
+        "closure_px_mean": 2.3319860167117343,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV10/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 3.884775507888965,
+        "closure_px_mean": 5.651894085159261,
+        "lost": 10
+      },
+      {
+        "key": "Retest_dataset/IV10/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 2.144146390463728,
+        "closure_px_mean": 5.526932629729953,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV10/4ch",
+        "pairing": "strided",
+        "vs_mitt_px_median": 3.4768131850727846,
+        "closure_px_mean": 5.641449087112761,
+        "lost": 72
+      }
+    ],
+    "summary": {
+      "consecutive": {
+        "n_clips": 8,
+        "median": 3.783630787349045,
+        "p90": 4.551688218840383,
+        "lost_total": 327
+      },
+      "reference": {
+        "n_clips": 8,
+        "median": 3.22002232994968,
+        "p90": 3.7818189645868263,
+        "lost_total": 576
+      },
+      "strided": {
+        "n_clips": 8,
+        "median": 3.079108856314904,
+        "p90": 5.270526209291763,
+        "lost_total": 576
+      }
+    }
+  }
+}

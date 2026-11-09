@@ -1,0 +1,340 @@
+{
+  "checkpoint": null,
+  "weights": "outdoor",
+  "simulated": {
+    "simulated": [
+      {
+        "key": "Pat_109/regional_simulations/2ch/sim1",
+        "pairing": "consecutive",
+        "endpoint_px_median": 1.7788642228592666,
+        "endpoint_px_final": 2.3205743180268943,
+        "lost": 0,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/2ch/sim1",
+        "pairing": "reference",
+        "endpoint_px_median": 0.8692599995527952,
+        "endpoint_px_final": 0.23863875644499086,
+        "lost": 80,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/2ch/sim3",
+        "pairing": "consecutive",
+        "endpoint_px_median": 2.780040367230363,
+        "endpoint_px_final": 2.6983938029754118,
+        "lost": 0,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/2ch/sim3",
+        "pairing": "reference",
+        "endpoint_px_median": 1.0571041134566277,
+        "endpoint_px_final": 0.20572588187750548,
+        "lost": 61,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/2ch/sim5",
+        "pairing": "consecutive",
+        "endpoint_px_median": 2.049948899209464,
+        "endpoint_px_final": 1.9005871798981413,
+        "lost": 0,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/2ch/sim5",
+        "pairing": "reference",
+        "endpoint_px_median": 0.9585944032164845,
+        "endpoint_px_final": 0.20773868068338636,
+        "lost": 53,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/2ch/sim7",
+        "pairing": "consecutive",
+        "endpoint_px_median": 2.1343866683991672,
+        "endpoint_px_final": 2.6135256301652317,
+        "lost": 2,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/2ch/sim7",
+        "pairing": "reference",
+        "endpoint_px_median": 1.1511594419426483,
+        "endpoint_px_final": 0.22082761612958163,
+        "lost": 72,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/2ch/sim9",
+        "pairing": "consecutive",
+        "endpoint_px_median": 2.0300478514711617,
+        "endpoint_px_final": 1.6515519643378611,
+        "lost": 0,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/2ch/sim9",
+        "pairing": "reference",
+        "endpoint_px_median": 1.0902273854071083,
+        "endpoint_px_final": 0.19637241109927772,
+        "lost": 65,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/4ch/sim10",
+        "pairing": "consecutive",
+        "endpoint_px_median": 1.940589776249133,
+        "endpoint_px_final": 2.892510696069796,
+        "lost": 0,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/4ch/sim10",
+        "pairing": "reference",
+        "endpoint_px_median": 0.8406494527714,
+        "endpoint_px_final": 0.2511300868542427,
+        "lost": 81,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/4ch/sim2",
+        "pairing": "consecutive",
+        "endpoint_px_median": 1.5305447707870927,
+        "endpoint_px_final": 1.968921996184549,
+        "lost": 0,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/4ch/sim2",
+        "pairing": "reference",
+        "endpoint_px_median": 0.7679876009423829,
+        "endpoint_px_final": 0.21127157413009262,
+        "lost": 41,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/4ch/sim4",
+        "pairing": "consecutive",
+        "endpoint_px_median": 1.8392825932762285,
+        "endpoint_px_final": 1.8536955754567175,
+        "lost": 0,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/4ch/sim4",
+        "pairing": "reference",
+        "endpoint_px_median": 1.1693342894946568,
+        "endpoint_px_final": 0.26252364551752544,
+        "lost": 77,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/4ch/sim6",
+        "pairing": "consecutive",
+        "endpoint_px_median": 1.604056807525663,
+        "endpoint_px_final": 2.1705793152178767,
+        "lost": 0,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/4ch/sim6",
+        "pairing": "reference",
+        "endpoint_px_median": 0.7761206218473475,
+        "endpoint_px_final": 0.25233241300178944,
+        "lost": 43,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/4ch/sim8",
+        "pairing": "consecutive",
+        "endpoint_px_median": 1.7193068768954358,
+        "endpoint_px_final": 2.3770999665229744,
+        "lost": 0,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/4ch/sim8",
+        "pairing": "reference",
+        "endpoint_px_median": 1.1042383143389933,
+        "endpoint_px_final": 0.3045097277770904,
+        "lost": 71,
+        "n_points": 200
+      }
+    ],
+    "summary": {
+      "consecutive": {
+        "n_clips": 10,
+        "median": 1.8899361847626808,
+        "p90": 2.1989520382822865,
+        "lost_total": 2
+      },
+      "reference": {
+        "n_clips": 10,
+        "median": 1.0078492583365561,
+        "p90": 1.1529769266978491,
+        "lost_total": 644
+      }
+    }
+  },
+  "in_vivo": {
+    "in_vivo": [
+      {
+        "key": "Retest_dataset/IV02/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 5.034355845939091,
+        "closure_px_mean": 6.20927034953075,
+        "lost": 0
+      },
+      {
+        "key": "Retest_dataset/IV02/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 5.59771705693851,
+        "closure_px_mean": 2.674164614748253,
+        "lost": 52
+      },
+      {
+        "key": "Retest_dataset/IV03/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 3.9092369685501938,
+        "closure_px_mean": 5.246066314625608,
+        "lost": 3
+      },
+      {
+        "key": "Retest_dataset/IV03/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 3.264256563949107,
+        "closure_px_mean": 5.4581405730032815,
+        "lost": 60
+      },
+      {
+        "key": "Retest_dataset/IV04/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 4.441677057765214,
+        "closure_px_mean": 10.658808964135057,
+        "lost": 9
+      },
+      {
+        "key": "Retest_dataset/IV04/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 4.4158272058425645,
+        "closure_px_mean": 3.5017840401083666,
+        "lost": 71
+      },
+      {
+        "key": "Retest_dataset/IV05/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 7.2518226984817264,
+        "closure_px_mean": 10.099699236269032,
+        "lost": 6
+      },
+      {
+        "key": "Retest_dataset/IV05/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 7.128081730895121,
+        "closure_px_mean": 6.5102592768910235,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV06/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 5.808627014337265,
+        "closure_px_mean": 6.403015850369915,
+        "lost": 1
+      },
+      {
+        "key": "Retest_dataset/IV06/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 4.97899605970972,
+        "closure_px_mean": 5.759929054756977,
+        "lost": 44
+      },
+      {
+        "key": "Retest_dataset/IV07/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 5.089298006907928,
+        "closure_px_mean": 14.300931394986428,
+        "lost": 0
+      },
+      {
+        "key": "Retest_dataset/IV07/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 5.519187681728418,
+        "closure_px_mean": 15.070155466174318,
+        "lost": 55
+      },
+      {
+        "key": "Retest_dataset/IV09/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 4.730298149651301,
+        "closure_px_mean": 7.141052954095947,
+        "lost": 2
+      },
+      {
+        "key": "Retest_dataset/IV09/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 5.4141067028209875,
+        "closure_px_mean": 5.193530823986986,
+        "lost": 62
+      },
+      {
+        "key": "Retest_dataset/IV10/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 4.035986203975096,
+        "closure_px_mean": 5.727765249475474,
+        "lost": 0
+      },
+      {
+        "key": "Retest_dataset/IV10/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 2.598369864510493,
+        "closure_px_mean": 5.24463931133643,
+        "lost": 38
+      },
+      {
+        "key": "Retest_dataset/IV12/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 5.7166563602168985,
+        "closure_px_mean": 7.345663087284944,
+        "lost": 2
+      },
+      {
+        "key": "Retest_dataset/IV12/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 6.106099152074281,
+        "closure_px_mean": 6.896609248314471,
+        "lost": 42
+      },
+      {
+        "key": "Retest_dataset/IV13/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 7.674028611044815,
+        "closure_px_mean": 17.493376530429657,
+        "lost": 17
+      },
+      {
+        "key": "Retest_dataset/IV13/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 7.185816325509311,
+        "closure_px_mean": 8.369779403432386,
+        "lost": 52
+      }
+    ],
+    "summary": {
+      "consecutive": {
+        "n_clips": 10,
+        "median": 5.061826926423509,
+        "p90": 7.294043289738035,
+        "lost_total": 40
+      },
+      "reference": {
+        "n_clips": 10,
+        "median": 5.466647192274703,
+        "p90": 7.13385519035654,
+        "lost_total": 548
+      }
+    }
+  }
+}

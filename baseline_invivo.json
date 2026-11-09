@@ -1,0 +1,92 @@
+{
+  "checkpoint": null,
+  "weights": "outdoor",
+  "in_vivo": {
+    "in_vivo": [
+      {
+        "key": "Retest_dataset/IV02/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 5.034355845939091,
+        "closure_px_mean": 6.20927034953075,
+        "lost": 0
+      },
+      {
+        "key": "Retest_dataset/IV02/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 5.59771705693851,
+        "closure_px_mean": 2.674164614748253,
+        "lost": 52
+      },
+      {
+        "key": "Retest_dataset/IV03/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 3.9092369685501938,
+        "closure_px_mean": 5.246066314625608,
+        "lost": 3
+      },
+      {
+        "key": "Retest_dataset/IV03/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 3.264256563949107,
+        "closure_px_mean": 5.4581405730032815,
+        "lost": 60
+      },
+      {
+        "key": "Retest_dataset/IV04/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 4.441677057765214,
+        "closure_px_mean": 10.658808964135057,
+        "lost": 9
+      },
+      {
+        "key": "Retest_dataset/IV04/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 4.4158272058425645,
+        "closure_px_mean": 3.5017840401083666,
+        "lost": 71
+      },
+      {
+        "key": "Retest_dataset/IV05/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 7.2518226984817264,
+        "closure_px_mean": 10.099699236269032,
+        "lost": 6
+      },
+      {
+        "key": "Retest_dataset/IV05/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 7.128081730895121,
+        "closure_px_mean": 6.5102592768910235,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV06/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 5.808627014337265,
+        "closure_px_mean": 6.403015850369915,
+        "lost": 1
+      },
+      {
+        "key": "Retest_dataset/IV06/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 4.97899605970972,
+        "closure_px_mean": 5.759929054756977,
+        "lost": 44
+      }
+    ],
+    "summary": {
+      "consecutive": {
+        "n_clips": 5,
+        "median": 5.034355845939091,
+        "p90": 6.674544424823942,
+        "lost_total": 19
+      },
+      "reference": {
+        "n_clips": 5,
+        "median": 4.97899605970972,
+        "p90": 6.515935861312477,
+        "lost_total": 299
+      }
+    }
+  }
+}

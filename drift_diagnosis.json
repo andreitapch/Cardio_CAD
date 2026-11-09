@@ -1,0 +1,68 @@
+[
+  {
+    "n_steps": 43,
+    "gain": 0.8642120630708159,
+    "bias_per_step_px": -0.16637435662705116,
+    "noise_per_step_px": 0.24032952944819055,
+    "closure_observed_px": 2.3443923381340275,
+    "closure_if_bias_px": 7.1540973349631996,
+    "closure_if_random_walk_px": 1.5759461149309368,
+    "lost": 0,
+    "key": "Pat_109/regional_simulations/2ch/sim1"
+  },
+  {
+    "n_steps": 43,
+    "gain": 0.8136429033421558,
+    "bias_per_step_px": -0.2188484783905251,
+    "noise_per_step_px": 0.2908623482409485,
+    "closure_observed_px": 2.6131567641934588,
+    "closure_if_bias_px": 9.41048457079258,
+    "closure_if_random_walk_px": 1.9073119676241397,
+    "lost": 1,
+    "key": "Pat_109/regional_simulations/2ch/sim3"
+  },
+  {
+    "n_steps": 43,
+    "gain": 0.8450463353158478,
+    "bias_per_step_px": -0.15805814779583713,
+    "noise_per_step_px": 0.233305996160723,
+    "closure_observed_px": 1.9061301638884376,
+    "closure_if_bias_px": 6.796500355220997,
+    "closure_if_random_walk_px": 1.5298897271749796,
+    "lost": 0,
+    "key": "Pat_109/regional_simulations/2ch/sim5"
+  },
+  {
+    "n_steps": 43,
+    "gain": 0.8168585428934965,
+    "bias_per_step_px": -0.19833371343415226,
+    "noise_per_step_px": 0.28650147731722553,
+    "closure_observed_px": 2.598266806481303,
+    "closure_if_bias_px": 8.528349677668547,
+    "closure_if_random_walk_px": 1.8787158246294104,
+    "lost": 0,
+    "key": "Pat_109/regional_simulations/2ch/sim7"
+  },
+  {
+    "n_steps": 43,
+    "gain": 0.8738161524747219,
+    "bias_per_step_px": -0.13443323527527473,
+    "noise_per_step_px": 0.21436838360594393,
+    "closure_observed_px": 1.6187211176951217,
+    "closure_if_bias_px": 5.780629116836813,
+    "closure_if_random_walk_px": 1.4057074970499661,
+    "lost": 0,
+    "key": "Pat_109/regional_simulations/2ch/sim9"
+  },
+  {
+    "n_steps": 35,
+    "gain": 0.8982547200817569,
+    "bias_per_step_px": -0.12529866425756875,
+    "noise_per_step_px": 0.23520259045185807,
+    "closure_observed_px": 2.5886305542005834,
+    "closure_if_bias_px": 4.3854532490149065,
+    "closure_if_random_walk_px": 1.3914772903048964,
+    "lost": 0,
+    "key": "Pat_109/regional_simulations/4ch/sim10"
+  }
+]

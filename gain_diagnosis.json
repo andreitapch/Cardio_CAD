@@ -1,0 +1,35 @@
+{
+  "raw": 0.9792040678294163,
+  "sweep": [
+    {
+      "radius": 8,
+      "affine": NaN,
+      "translation": NaN,
+      "affine_no_reject": NaN
+    },
+    {
+      "radius": 16,
+      "affine": 0.9772413859060308,
+      "translation": 0.976562715074818,
+      "affine_no_reject": 0.9741166367307731
+    },
+    {
+      "radius": 24,
+      "affine": 0.9671469023395193,
+      "translation": 0.9644626017603921,
+      "affine_no_reject": 0.9643592871284423
+    },
+    {
+      "radius": 32,
+      "affine": 0.958463887525226,
+      "translation": 0.955540048812437,
+      "affine_no_reject": 0.9547902004490654
+    },
+    {
+      "radius": 48,
+      "affine": 0.952732361960429,
+      "translation": 0.9415391942073028,
+      "affine_no_reject": 0.9452068647869108
+    }
+  ]
+}

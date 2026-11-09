@@ -1,0 +1,141 @@
+{
+  "args": {
+    "simulated": "False",
+    "in_vivo": "True",
+    "methods": "['loftr', 'flow']",
+    "pairings": "['consecutive', 'reference']",
+    "checkpoint": "None",
+    "weights": "outdoor",
+    "scale": "1.0",
+    "min_confidence": "0.2",
+    "radius": "16.0",
+    "stride": "6",
+    "consistency_px": "2.0",
+    "use_mask": "True",
+    "limit": "1",
+    "n_points": "200",
+    "dataset": "Retest_dataset",
+    "view": "4ch",
+    "mitt_variant": "uni",
+    "cache_dir": "D:\\PHD\\Development\\Python\\Cardio_CAD\\motion_estimator\\artifacts\\simulated-cache",
+    "val_fraction": "0.2",
+    "seed": "0",
+    "run_dir": "None",
+    "tag": "None",
+    "json": "None"
+  },
+  "in-vivo": {
+    "rows": [
+      {
+        "key": "Retest_dataset/IV02/4ch",
+        "method": "loftr",
+        "pairing": "consecutive",
+        "truth": false,
+        "error_px_es": 5.785217510388854,
+        "coverage_es": 0.5277777777777778,
+        "error_px_median": 3.608847279933326,
+        "error_px_p90": 7.454758414034279,
+        "coverage": 0.4895833333333333,
+        "closure_px_mean": 4.238077018573401,
+        "gain": NaN,
+        "es_frame": 20,
+        "n_points": 72,
+        "n_frames": 44,
+        "group": "loftr:consecutive"
+      },
+      {
+        "key": "Retest_dataset/IV02/4ch",
+        "method": "loftr",
+        "pairing": "reference",
+        "truth": false,
+        "error_px_es": 7.4762270395989745,
+        "coverage_es": 0.1111111111111111,
+        "error_px_median": 3.654796942999868,
+        "error_px_p90": 12.427145920058743,
+        "coverage": 0.32544191919191917,
+        "closure_px_mean": 1.8865262276637424,
+        "gain": NaN,
+        "es_frame": 20,
+        "n_points": 72,
+        "n_frames": 44,
+        "group": "loftr:reference"
+      },
+      {
+        "key": "Retest_dataset/IV02/4ch",
+        "method": "flow",
+        "pairing": "consecutive",
+        "truth": false,
+        "error_px_es": 3.0705968709351517,
+        "coverage_es": 1.0,
+        "error_px_median": 2.4187071798871003,
+        "error_px_p90": 6.158327221663074,
+        "coverage": 1.0,
+        "closure_px_mean": 4.075561752874742,
+        "gain": NaN,
+        "es_frame": 20,
+        "n_points": 72,
+        "n_frames": 44,
+        "group": "flow:consecutive"
+      },
+      {
+        "key": "Retest_dataset/IV02/4ch",
+        "method": "flow",
+        "pairing": "reference",
+        "truth": false,
+        "error_px_es": 12.703766422906781,
+        "coverage_es": 0.7638888888888888,
+        "error_px_median": 4.7828604768022025,
+        "error_px_p90": 13.650612129221079,
+        "coverage": 0.930239898989899,
+        "closure_px_mean": 1.909887160863053,
+        "gain": NaN,
+        "es_frame": 20,
+        "n_points": 72,
+        "n_frames": 44,
+        "group": "flow:reference"
+      }
+    ],
+    "summary": {
+      "flow:consecutive": {
+        "n_clips": 1,
+        "error_px_es": 3.0705968709351517,
+        "coverage_es": 1.0,
+        "error_px_median": 2.4187071798871003,
+        "error_px_p90": 6.158327221663074,
+        "coverage": 1.0,
+        "closure_px_mean": 4.075561752874742,
+        "gain": NaN
+      },
+      "flow:reference": {
+        "n_clips": 1,
+        "error_px_es": 12.703766422906781,
+        "coverage_es": 0.7638888888888888,
+        "error_px_median": 4.7828604768022025,
+        "error_px_p90": 13.650612129221079,
+        "coverage": 0.930239898989899,
+        "closure_px_mean": 1.909887160863053,
+        "gain": NaN
+      },
+      "loftr:consecutive": {
+        "n_clips": 1,
+        "error_px_es": 5.785217510388854,
+        "coverage_es": 0.5277777777777778,
+        "error_px_median": 3.608847279933326,
+        "error_px_p90": 7.454758414034279,
+        "coverage": 0.4895833333333333,
+        "closure_px_mean": 4.238077018573401,
+        "gain": NaN
+      },
+      "loftr:reference": {
+        "n_clips": 1,
+        "error_px_es": 7.4762270395989745,
+        "coverage_es": 0.1111111111111111,
+        "error_px_median": 3.654796942999868,
+        "error_px_p90": 12.427145920058743,
+        "coverage": 0.32544191919191917,
+        "closure_px_mean": 1.8865262276637424,
+        "gain": NaN
+      }
+    }
+  }
+}

@@ -1,0 +1,340 @@
+{
+  "checkpoint": "motion_estimator/artifacts/loftr-finetuned/best.pt",
+  "weights": "outdoor",
+  "simulated": {
+    "simulated": [
+      {
+        "key": "Pat_109/regional_simulations/2ch/sim1",
+        "pairing": "consecutive",
+        "endpoint_px_median": 3.5842214006939894,
+        "endpoint_px_final": 1.746029054369834,
+        "lost": 3,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/2ch/sim1",
+        "pairing": "reference",
+        "endpoint_px_median": 2.006989197529417,
+        "endpoint_px_final": 0.11336425910254984,
+        "lost": 99,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/2ch/sim3",
+        "pairing": "consecutive",
+        "endpoint_px_median": 7.047545084960793,
+        "endpoint_px_final": 2.1893139646805566,
+        "lost": 2,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/2ch/sim3",
+        "pairing": "reference",
+        "endpoint_px_median": 2.184243167772291,
+        "endpoint_px_final": 0.10865265351320125,
+        "lost": 98,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/2ch/sim5",
+        "pairing": "consecutive",
+        "endpoint_px_median": 5.197149674177597,
+        "endpoint_px_final": 1.992674829490894,
+        "lost": 1,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/2ch/sim5",
+        "pairing": "reference",
+        "endpoint_px_median": 2.0835978234893195,
+        "endpoint_px_final": 0.07297447996799902,
+        "lost": 92,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/2ch/sim7",
+        "pairing": "consecutive",
+        "endpoint_px_median": 5.768405836285949,
+        "endpoint_px_final": 2.793702851489435,
+        "lost": 21,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/2ch/sim7",
+        "pairing": "reference",
+        "endpoint_px_median": 2.2654927400038547,
+        "endpoint_px_final": 0.1652120979454334,
+        "lost": 105,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/2ch/sim9",
+        "pairing": "consecutive",
+        "endpoint_px_median": 5.371537400136799,
+        "endpoint_px_final": 2.264703121463496,
+        "lost": 4,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/2ch/sim9",
+        "pairing": "reference",
+        "endpoint_px_median": 2.185334106461548,
+        "endpoint_px_final": 0.07051039052368557,
+        "lost": 110,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/4ch/sim10",
+        "pairing": "consecutive",
+        "endpoint_px_median": 4.941621616460778,
+        "endpoint_px_final": 2.5792819472042816,
+        "lost": 3,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/4ch/sim10",
+        "pairing": "reference",
+        "endpoint_px_median": 1.9268480434202098,
+        "endpoint_px_final": 0.10003452568030269,
+        "lost": 159,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/4ch/sim2",
+        "pairing": "consecutive",
+        "endpoint_px_median": 3.709080121190407,
+        "endpoint_px_final": 1.7267732458908323,
+        "lost": 1,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/4ch/sim2",
+        "pairing": "reference",
+        "endpoint_px_median": 1.8134502036563984,
+        "endpoint_px_final": 0.09597600843790247,
+        "lost": 145,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/4ch/sim4",
+        "pairing": "consecutive",
+        "endpoint_px_median": 5.55891241330181,
+        "endpoint_px_final": 1.843005752514651,
+        "lost": 1,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/4ch/sim4",
+        "pairing": "reference",
+        "endpoint_px_median": 2.299623907302694,
+        "endpoint_px_final": 0.12099198077214315,
+        "lost": 137,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/4ch/sim6",
+        "pairing": "consecutive",
+        "endpoint_px_median": 4.805021582305481,
+        "endpoint_px_final": 1.743352803534124,
+        "lost": 0,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/4ch/sim6",
+        "pairing": "reference",
+        "endpoint_px_median": 1.9325694716869792,
+        "endpoint_px_final": 0.0839575943952889,
+        "lost": 119,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/4ch/sim8",
+        "pairing": "consecutive",
+        "endpoint_px_median": 5.784249551060636,
+        "endpoint_px_final": 2.434802836739724,
+        "lost": 0,
+        "n_points": 200
+      },
+      {
+        "key": "Pat_109/regional_simulations/4ch/sim8",
+        "pairing": "reference",
+        "endpoint_px_median": 2.3257046480995465,
+        "endpoint_px_final": 0.1520671118990442,
+        "lost": 146,
+        "n_points": 200
+      }
+    ],
+    "summary": {
+      "consecutive": {
+        "n_clips": 10,
+        "median": 5.2843435371571985,
+        "p90": 5.910579104450651,
+        "lost_total": 36
+      },
+      "reference": {
+        "n_clips": 10,
+        "median": 2.1339204956308055,
+        "p90": 2.3022319813823793,
+        "lost_total": 1210
+      }
+    }
+  },
+  "in_vivo": {
+    "in_vivo": [
+      {
+        "key": "Retest_dataset/IV02/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 10.808494827465339,
+        "closure_px_mean": 4.076138796991808,
+        "lost": 3
+      },
+      {
+        "key": "Retest_dataset/IV02/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 5.390002859076569,
+        "closure_px_mean": 0.3951867586060931,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV03/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 7.405368015767006,
+        "closure_px_mean": 2.450135705862363,
+        "lost": 15
+      },
+      {
+        "key": "Retest_dataset/IV03/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 2.3577874764565303,
+        "closure_px_mean": 3.0120494256192143,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV04/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 7.789335080675471,
+        "closure_px_mean": 4.976821104813705,
+        "lost": 23
+      },
+      {
+        "key": "Retest_dataset/IV04/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 3.7834499305304066,
+        "closure_px_mean": 0.30653725305169877,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV05/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 12.727674627118077,
+        "closure_px_mean": 3.302427407433339,
+        "lost": 20
+      },
+      {
+        "key": "Retest_dataset/IV05/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 6.452870067202145,
+        "closure_px_mean": 0.40596701873810237,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV06/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 7.636745436790067,
+        "closure_px_mean": 1.8094623624053006,
+        "lost": 9
+      },
+      {
+        "key": "Retest_dataset/IV06/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 4.198933761459673,
+        "closure_px_mean": 3.8699575210726787,
+        "lost": 69
+      },
+      {
+        "key": "Retest_dataset/IV07/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 9.82690338747118,
+        "closure_px_mean": 3.8789021886535595,
+        "lost": 17
+      },
+      {
+        "key": "Retest_dataset/IV07/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 3.0374874443411484,
+        "closure_px_mean": 16.987617418120802,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV09/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 5.64444736767931,
+        "closure_px_mean": 3.017341440347348,
+        "lost": 14
+      },
+      {
+        "key": "Retest_dataset/IV09/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 2.963428256439362,
+        "closure_px_mean": 0.9230293109306535,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV10/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 8.15130569851876,
+        "closure_px_mean": 2.2612826818099894,
+        "lost": 1
+      },
+      {
+        "key": "Retest_dataset/IV10/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 3.062104311972199,
+        "closure_px_mean": 3.1007938849797387,
+        "lost": 69
+      },
+      {
+        "key": "Retest_dataset/IV12/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 6.04504829224148,
+        "closure_px_mean": 2.691568113970566,
+        "lost": 21
+      },
+      {
+        "key": "Retest_dataset/IV12/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 5.236401361612901,
+        "closure_px_mean": 1.8899841422924317,
+        "lost": 72
+      },
+      {
+        "key": "Retest_dataset/IV13/4ch",
+        "pairing": "consecutive",
+        "vs_mitt_px_median": 7.435585218057446,
+        "closure_px_mean": 6.2465357996069235,
+        "lost": 31
+      },
+      {
+        "key": "Retest_dataset/IV13/4ch",
+        "pairing": "reference",
+        "vs_mitt_px_median": 5.196994157839521,
+        "closure_px_mean": 6.0976074700211464,
+        "lost": 72
+      }
+    ],
+    "summary": {
+      "consecutive": {
+        "n_clips": 10,
+        "median": 7.713040258732769,
+        "p90": 11.000412807430612,
+        "lost_total": 154
+      },
+      "reference": {
+        "n_clips": 10,
+        "median": 3.99119184599504,
+        "p90": 5.496289579889126,
+        "lost_total": 714
+      }
+    }
+  }
+}
