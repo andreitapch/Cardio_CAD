@@ -71,7 +71,7 @@ if read_traces:  # read traces from different sources
 # Align Strain Curves and interpolate
 if interp_traces_db:
     if selected_source_data == 'ST':
-        aligned_traces = AlignStrainTraces()
+        aligned_traces = AlignStrainTraces(selected_source_data, interpSelection)
 #     elif selected_source_data == 'SPEQLE':
 #         seg_strain_tracesDF = load_traces(studyType, 'speqle_segmentalStrain_T',isImputed)
 #         seg_sr_tracesDF = load_traces(studyType, 'speqle_segmentalSr_T',isImputed)

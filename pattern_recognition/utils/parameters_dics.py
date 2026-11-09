@@ -1,5 +1,3 @@
-openai_key = '***REMOVED***'
-
 parameters = {
     'save_plot_dir': 'D:\PHD\Development\Python\Cardio_CAD\pattern_recognition\plots',
     'sourceData': 'db'  # xlsx,...

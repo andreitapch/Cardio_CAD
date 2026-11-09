@@ -1,12 +1,11 @@
 import os
 import logging
-from dash import html, dcc
 
 # Optional imports (done safely)
 try:
     import torch
     from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
-except ImportError:
+except Exception:  # ImportError, or an OSError from a broken native torch install
     torch = None
 
 try:
@@ -124,14 +123,9 @@ class MedicalLLMInterpreter:
             return self._handle_failure(f"Failed to generate with local model. Error: {e}")
 
     def _format_analysis(self, analysis_text):
-        return html.Div([
-            html.H5(f"{'GPT-3.5' if self.mode == 'openai' else 'Local'} Medical Feature Analysis"),
-            dcc.Markdown(analysis_text, style={'white-space': 'pre-wrap'})
-        ])
+        title = 'GPT-3.5' if self.mode == 'openai' else 'Local'
+        return f"{title} medical feature analysis\n\n{analysis_text}"
 
     def _handle_failure(self, message):
         self.logger.error(message)
-        return html.Div([
-            html.H5("Analysis Generation Failed"),
-            dcc.Markdown(f"**Reason:** {message}", style={'color': 'red'})
-        ])
+        return f"Analysis generation failed. Reason: {message}"

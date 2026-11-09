@@ -53,6 +53,7 @@ def create_navbar():
                                 dbc.DropdownMenuItem("Find best class Params: VAC", href='/tab-best_vac_class'),
                                 dbc.DropdownMenuItem("Find Echo Params: ", href='/tab-bestEchoParam_class'),
                                 dbc.DropdownMenuItem("Classify Ste & Echo Params: ", href='/tab-bestSteEcho_class'),
+                                dbc.DropdownMenuItem("Compare Classifiers", href='/tab-class_comparison'),
                                 # dbc.DropdownMenuItem("KNN classifier", href='/tab-KNN_class'),
                                 # dbc.DropdownMenuItem("Decision Tree  classifier", href='/tab-DT_class'),
                                 # dbc.DropdownMenuItem("RF classifier", href='/tab-RF_class'),

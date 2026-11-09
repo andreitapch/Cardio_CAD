@@ -5,7 +5,7 @@ from tqdm import tqdm
 import numpy as np
 from pyxlsb import open_workbook
 
-from dash_viewer.data_imputation.load_dataTables import load_data_table_db
+from pattern_recognition.data.load_tables import load_data_table_db
 from pattern_recognition.data.database_connection import sql_queries
 from pattern_recognition.data.database_connection.db_con import DatabaseConnection as dbc
 from pattern_recognition.utils.parameters_dics import dbConParameters, stParameters, dbParameters, dbTableNames, \

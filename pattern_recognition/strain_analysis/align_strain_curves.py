@@ -4,7 +4,7 @@ from tqdm import tqdm
 from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 
-from dash_viewer.data_imputation.load_dataTables import load_data_table_db
+from pattern_recognition.data.load_tables import load_data_table_db
 from pattern_recognition.data.database_connection.db_con import DatabaseConnection as dbc
 from pattern_recognition.utils.parameters_dics import dbConParameters, dbParameters, dbTableNames
 

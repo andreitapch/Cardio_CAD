@@ -1,4 +1,6 @@
 import gc
+from datetime import datetime
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -40,11 +42,19 @@ def fill_Components_dropdown(isImputed, input_type, class_input):
         if input_type is None:
             return [], None
         else:
-            reconstructed_type = f'AutoencoderDM-{input_type}'
+            # 'AutoencoderDm', matching what the reduction tab writes. The old
+            # 'AutoencoderDM' only ever matched because SQL Server's default
+            # collation is case-insensitive.
+            reconstructed_type = f'AutoencoderDm-{input_type}'
         options_list = get_component_options(reconstructed_type, isImputed, 'calculated_dr_encoded_data_T', 'like',
                                              'encoding')
     elif class_input in ['reconstructed_traces','components','features_class', 'gls_class']:
-        options_list = get_component_options([input_type], isImputed, 'calculated_pca_params_T', 'in', 'n_components_')
+        # LIKE, not IN: segment runs store one row per segment, keyed
+        # 'segment-apAnt', 'segment-basInf', ... because a single row cannot
+        # describe 18 different bases. An exact IN ('segment') match therefore
+        # found nothing and the dropdown came up empty.
+        options_list = get_component_options(input_type, isImputed, 'calculated_pca_params_T',
+                                             'like', 'n_components_')
     else:
         return [], None
     default_value = options_list[0]['value'] if options_list else None
@@ -62,6 +72,7 @@ def fill_Components_dropdown(isImputed, input_type, class_input):
     Output('dropdown-pc-selector', 'value'),
     Output('pca-loadings-store', 'data'),
     Output('clinical_feats-store', 'data'),
+    Output('id-class-results-store', 'data'),
     Input('isDataImputed-id', 'value'),  #isImputed
     Input('id-best-knn-btn', 'n_clicks'),  #btn_neighbors
     Input('id-data-source-dropdown_bc', 'value'),  #data_source
@@ -72,18 +83,20 @@ def fill_Components_dropdown(isImputed, input_type, class_input):
     State('id-class_type-dropdown', 'value'),  #class_type
     Input('id-number_components-dropdown', 'value'),  #n_components
     Input('id-classify-dropdown', 'value'),  #classify_type
-    Input('id-scaling-dropdown', 'value')  #scaling_mode
+    Input('id-scaling-dropdown', 'value'),  #scaling_mode
+    State('id-reducer-dropdown', 'value'),  #reducer
+    State('id-reducer-components-input', 'value'),  #reducer_components
 )
 def update_output(isImputed, btn_neighbors, data_source, unbalanced_type,
                   addGLS, addFeatEcho, input_type, class_type, n_components, class_input,
-                  scaling_mode):
+                  scaling_mode, reducer, reducer_components):
     global instance_clf, param_table
     pc_number = None
     instance_clf = BestParamClassViewer()
     studyType = 'BL'
 
-    # Ten outputs; keep every early exit the same width.
-    no_change = (dash.no_update,) * 10
+    # Eleven outputs; keep every early exit the same width.
+    no_change = (dash.no_update,) * 11
 
     if "id-best-knn-btn" != ctx.triggered_id or not data_source:
         return no_change
@@ -117,6 +130,7 @@ def update_output(isImputed, btn_neighbors, data_source, unbalanced_type,
     print(f'With GLS        : {addGLS}')
     print(f'With Echo Params: {addFeatEcho}')
     print(f'Standardise     : {scale_features} ({scaling_mode})')
+    print(f'Reduce in CV    : {reducer} ({reducer_components} components)')
     print('-----------------------------------------------------------------------------------------------')
 
     component = n_components
@@ -133,7 +147,9 @@ def update_output(isImputed, btn_neighbors, data_source, unbalanced_type,
                                                       imp_feature_col_name,
                                                       unbalanced_type, class_type, features,
                                                       scale_features=scale_features,
-                                                      class_input=class_input)
+                                                      class_input=class_input,
+                                                      reducer=reducer,
+                                                      reducer_components=reducer_components)
 
     if best_param is None:
         gc.collect()
@@ -142,7 +158,7 @@ def update_output(isImputed, btn_neighbors, data_source, unbalanced_type,
             dash_bc.Alert('No SHAP: the run produced no result.', color='secondary'),
             dash_bc.Alert('The classification run failed. See the console log for the traceback.',
                           color='danger'),
-            [], None, dash.no_update, dash.no_update,
+            [], None, dash.no_update, dash.no_update, None,
         )
 
     dash_beeswarm = shap_beeswarm_base64(shap_values, class_input)
@@ -172,7 +188,8 @@ def update_output(isImputed, btn_neighbors, data_source, unbalanced_type,
 
     run_summary = _build_run_summary(data_source, class_input, input_type, class_type,
                                      unbalanced_type, n_components, isImputed,
-                                     addGLS, addFeatEcho, scale_features, scaling_mode, cm)
+                                     addGLS, addFeatEcho, scale_features, scaling_mode, cm,
+                                     reducer, reducer_components)
 
     if dash_beeswarm and important_features:
         save_shap_beeswarm_svg(shap_values, class_input, "shap_beeswarm.svg")
@@ -211,13 +228,114 @@ def update_output(isImputed, btn_neighbors, data_source, unbalanced_type,
         dropdown_options,
         default_pc_value,
         pca_loadings,
-        clinical_feats
+        clinical_feats,
+        _download_payload(data_source, class_input, input_type, class_type,
+                          unbalanced_type, n_components, isImputed, addGLS,
+                          addFeatEcho, scale_features, scaling_mode, reducer,
+                          reducer_components, param_table, test_metrics_table),
     )
+
+
+def _safe_token(value, fallback='na'):
+    token = ''.join(ch if ch.isalnum() or ch in '-_' else '-' for ch in str(value or ''))
+    return token.strip('-') or fallback
+
+
+def _download_payload(data_source, class_input, input_type, class_type, unbalanced_type,
+                      n_components, isImputed, addGLS, addFeatEcho, scale_features,
+                      scaling_mode, reducer, reducer_components,
+                      param_table, test_metrics_table):
+    """Snapshot of the finished run, for the CSV download.
+
+    Stored as plain records rather than read back off the rendered DataTables:
+    those are components, and a download that re-parsed them would break the
+    next time their columns or styling changed. Nothing here may raise - a
+    download convenience must not be able to lose an hours-long run.
+    """
+    try:
+        return {
+            'stamp': datetime.now().strftime('%Y%m%d-%H%M%S'),
+            'config': {
+                'data_source': data_source,
+                'classify_by': class_input,
+                'use': input_type,
+                'components': n_components,
+                'imputed': bool(isImputed),
+                'model': str(class_type).replace('_class', ''),
+                'imbalance': unbalanced_type,
+                'standardisation': f"{'on' if scale_features else 'off'} ({scaling_mode})",
+                'reducer': ('none' if reducer in (None, 'none')
+                            else f'{reducer} ({reducer_components})'),
+                'add_gls': bool(addGLS),
+                'add_echo_features': bool(addFeatEcho),
+                'run_at': datetime.now().isoformat(timespec='seconds'),
+            },
+            'best_params': list(getattr(param_table, 'data', None) or []),
+            'metrics': list(getattr(test_metrics_table, 'data', None) or []),
+        }
+    except Exception as exc:
+        print(f'[WARN] could not build the CSV download payload: {exc}')
+        return None
+
+
+def _build_download_frame(payload):
+    """One tidy long frame: section, field, value.
+
+    One file rather than two buttons, because a metrics row is only reusable in
+    the thesis next to the hyperparameters and the setup that produced it. Long
+    rather than wide because the three sections share no column names, so a
+    single wide row would be mostly empty cells.
+    """
+    rows = []
+    sections = (
+        ('run_config', [payload.get('config') or {}]),
+        ('metrics', payload.get('metrics') or []),
+        ('best_params', payload.get('best_params') or []),
+    )
+    for section, records in sections:
+        for record in records:
+            for field, value in (record or {}).items():
+                rows.append({'section': section, 'field': field, 'value': value})
+    return pd.DataFrame(rows, columns=['section', 'field', 'value'])
+
+
+@callback(
+    Output('id-class-download', 'data'),
+    Output('id-class-download-status', 'children'),
+    Input('id-class-download-btn', 'n_clicks'),
+    State('id-class-results-store', 'data'),
+    prevent_initial_call=True,
+)
+def download_class_csv(n_clicks, payload):
+    if not n_clicks or not payload:
+        return dash.no_update, dash_bc.Alert(
+            'Nothing to download yet - press Classify first.',
+            color='secondary', className='mb-0')
+
+    # A malformed stored result must produce a message, not a dead callback.
+    try:
+        frame = _build_download_frame(payload)
+    except Exception as exc:
+        return dash.no_update, dash_bc.Alert(
+            f'Could not build the CSV from the last run: {exc}',
+            color='danger', className='mb-0')
+
+    if frame.empty:
+        return dash.no_update, dash_bc.Alert(
+            'The last run produced no rows to export.',
+            color='warning', className='mb-0')
+
+    config = payload.get('config') or {}
+    stamp = payload.get('stamp') or datetime.now().strftime('%Y%m%d-%H%M%S')
+    filename = (f"classification_{_safe_token(stamp)}_"
+                f"{_safe_token(config.get('model'))}_"
+                f"{_safe_token(config.get('classify_by'))}.csv")
+    return dcc.send_data_frame(frame.to_csv, filename, index=False), ''
 
 
 def _build_run_summary(data_source, class_input, input_type, class_type, unbalanced_type,
                        n_components, isImputed, addGLS, addFeatEcho, scale_features,
-                       scaling_mode, cm):
+                       scaling_mode, cm, reducer=None, reducer_components=None):
     """Badges describing the run, plus a note on how to read the metrics table.
 
     The distinction matters: the inner PR-AUC is what hyperparameters were
@@ -241,6 +359,11 @@ def _build_run_summary(data_source, class_input, input_type, class_type, unbalan
         badge('Components', n_components),
         badge('Imputed', 'yes' if isImputed else 'no'),
         badge('Standardised', scaling_label),
+        # The reducer is refit inside every split, so it is part of the model
+        # being reported, not a preprocessing footnote.
+        badge('Reduced in CV',
+              'no' if reducer in (None, 'none')
+              else f'{str(reducer).upper()} ({reducer_components})'),
     ]
     if addGLS:
         badges.append(badge('+GLS', 'yes'))
@@ -363,8 +486,12 @@ class BestParamClassViewer:
                             {'label': 'Components', 'value': 'components'},
                             {'label': 'Features', 'value': 'features_class'},
                             {'label': 'GLS', 'value': 'gls_class'},
-                            # {'label': 'Autoencoder Reconstructed', 'value': 'autoencoder_reconstructed'},
-                            # {'label': 'Autoencoder Encodings', 'value': 'autoencoder_encodings'},
+                            # One value, 'autoencoder_class', across the whole path.
+                            # It previously went by three different names - this
+                            # option, the components dropdown and load_data_traces
+                            # each used their own - so no single name reached the
+                            # end of the chain.
+                            {'label': 'Autoencoder encodings', 'value': 'autoencoder_class'},
                         ],
                         value=None,
                         style={'marginLeft': '20px', 'height': 'Auto', 'width': '180'}
@@ -463,6 +590,27 @@ class BestParamClassViewer:
                         'Raw strain traces are time points of one curve; z-scoring each '
                         'point separately changes KNN distances and the SHAP value axis.',
                         className='text-muted'),
+                    html.Br(),
+                    html.Label('Reduce inside CV:', style={'fontWeight': 'bold'}),
+                    dcc.Dropdown(
+                        id='id-reducer-dropdown',
+                        options=[
+                            {'label': 'None', 'value': 'none'},
+                            {'label': 'PCA', 'value': 'pca'},
+                            {'label': 'UMAP', 'value': 'umap'},
+                        ],
+                        value='none',
+                        style={'height': 'Auto', 'width': '70%'}
+                    ),
+                    dcc.Input(
+                        id='id-reducer-components-input', type='number', min=2, step=1,
+                        value=8, style={'width': '70%', 'marginTop': '6px'}
+                    ),
+                    html.Small(
+                        'Fit on each fold\'s training half only, after imputing and '
+                        'scaling and before any resampling. UMAP costs roughly 25 s per '
+                        'fit, so a full run is minutes longer.',
+                        className='text-muted'),
                 ], style={'width': '100%'}),
             ]),
             dash_bc.Row([
@@ -491,6 +639,16 @@ class BestParamClassViewer:
                         html.Div(id='id-table-best-params',
                                  style={'marginLeft': '20px'})
                     ], justify="center", style={'width': '90%', 'margin': 'auto'}),
+                    html.Br(),
+
+                    dash_bc.Row([
+                        dash_bc.Col(dash_bc.Button('Download CSV',
+                                                   id='id-class-download-btn',
+                                                   n_clicks=0, color='secondary',
+                                                   outline=True,
+                                                   style={'width': '100%'}), width=2),
+                        dash_bc.Col(html.Div(id='id-class-download-status'), width=6),
+                    ], style={'marginLeft': '20px'}),
                     html.Br(),
 
                     html.H5('Held-out performance',
@@ -548,6 +706,8 @@ class BestParamClassViewer:
                 ]),
 
                 dcc.Store(id='clinical_feats-store', data=None),
+                dcc.Store(id='id-class-results-store', data=None),
+                dcc.Download(id='id-class-download'),
 
             ])
         ])
