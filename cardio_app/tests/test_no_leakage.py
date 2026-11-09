@@ -5,9 +5,9 @@ chance. Before nested CV and training-only threshold selection were introduced,
 the cutoff was fitted on each test fold's own labels, so MCC and F1 came out
 well above chance even on pure noise.
 
-Run with:  python -m pytest dash_viewer/classification/tests/test_no_leakage.py
+Run with:  python -m pytest cardio_app/tests/test_no_leakage.py
 
-Optional heavy deps (dash, xgboost, shap, lightgbm, plotly, numba) are stubbed
+Optional heavy deps (dash, xgboost, shap, lightgbm, plotly) are stubbed
 if absent so these tests run without the full application environment.
 """
 import sys
@@ -32,7 +32,6 @@ def _stub_missing_dependencies():
         'lightgbm': dict(LGBMClassifier=_Dummy),
         'shap': dict(Explainer=_Dummy,
                      plots=types.SimpleNamespace(beeswarm=lambda *a, **k: None)),
-        'numba': dict(njit=lambda f=None, **k: (f if f else (lambda g: g))),
     }
     for name, attrs in stubs.items():
         try:
@@ -46,8 +45,8 @@ def _stub_missing_dependencies():
 
 _stub_missing_dependencies()
 
-from dash_viewer.classification.model_params import ModelParams, DEFAULT_SEARCH_BUDGET
-from dash_viewer.classification.machine_learning.utils_classifier import (
+from cardio_app.services.classification.model_params import ModelParams, DEFAULT_SEARCH_BUDGET
+from cardio_app.services.classification.engine import (
     DropUninformativeColumns, _augment_with_imputed, build_estimator_pipeline,
     choose_threshold, default_scaling_for, find_best_class_params, make_splitter,
     prepare_train_test_data, resolve_exam_groups, shap_unavailable_reason)
@@ -285,7 +284,7 @@ def _fold(n_rows, names, scale, seed):
 
 
 def test_shap_stacks_every_fold_over_common_features():
-    from dash_viewer.classification.machine_learning.utils_classifier import (
+    from cardio_app.services.classification.engine import (
         _concatenate_fold_explanations)
 
     names = ['a', 'b', 'c']
@@ -303,7 +302,7 @@ def test_shap_stacks_every_fold_over_common_features():
 
 def test_shap_stacking_realigns_columns_across_folds():
     """Folds drop different columns, so positions must be matched by name."""
-    from dash_viewer.classification.machine_learning.utils_classifier import (
+    from cardio_app.services.classification.engine import (
         _concatenate_fold_explanations)
 
     f1, d1 = _fold(6, ['a', 'b', 'c'], 1.0, 0)
@@ -320,7 +319,7 @@ def test_shap_stacking_realigns_columns_across_folds():
 
 def test_shap_ranking_reflects_all_folds_not_the_last():
     """A feature that only matters in early folds must still rank."""
-    from dash_viewer.classification.machine_learning.utils_classifier import (
+    from cardio_app.services.classification.engine import (
         _concatenate_fold_explanations)
 
     names = ['strong_early', 'steady']

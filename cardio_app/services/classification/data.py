@@ -9,9 +9,9 @@ from pattern_recognition.data.database_connection.db_con import DatabaseConnecti
 from pattern_recognition.data_preprocessing.speqle.concatenate_traces import CurveConcatenator
 from pattern_recognition.data.loadTraces import LoadTraces as load_traces
 
-from dash_viewer.classification.machine_learning.utils_classifier import preprocess_data, \
+from cardio_app.services.classification.engine import preprocess_data, \
     convert_echoParam_values, load_selected_features
-from dash_viewer.classification.machine_learning.utils.outliers_detector import remove_outliers_from_df, \
+from cardio_app.services.classification.outliers import remove_outliers_from_df, \
     remove_outliers_by_class_global
 
 
@@ -61,6 +61,12 @@ def load_data_traces(input_type, isImputed, unbalanced_type, class_type, data_so
     orig_concat_tracesDF, imp_concat_tracesDF = None, None
     features = None
 
+    # The reduction that produced the stored codes. The traces themselves always
+    # come from the PCA reconstruction (that is what pca_results_view serves);
+    # only the latent-code lookup differs, so the autoencoder key is built here
+    # and the trace filtering below keeps using the PCA one.
+    latent_prefix = 'AutoencoderDm' if class_input == 'autoencoder_class' else 'PCA'
+    latent_filter_by_type = f'{latent_prefix}-{input_type}-{encoding}'
     filter_by_type = f'PCA-{input_type}-{encoding}'
     tracesDF = load_queries_table_db('pca_results_view', 'data_source', 'in', [data_source])
     tracesDF['strain_trace'] = tracesDF['strain_trace'].apply(lambda x: np.array(json.loads(x)))
@@ -117,6 +123,27 @@ def load_data_traces(input_type, isImputed, unbalanced_type, class_type, data_so
             imp_concat_tracesDF, imp_feature_col_name = get_feature_components(imputed_tracesDF, data_source,
                                                                                filter_by_type, features,
                                                                                table_name, True, pc_number)
+    elif class_input in ['autoencoder_class']:
+        # Same shape as the 'components' branch: one latent vector per study,
+        # joined onto the labelled cohort. Only the table, the column and the
+        # reconstructed_type prefix differ.
+        table_name = 'calculated_dr_encoded_data_T'
+        features = 'encoded_vector'
+
+        if imputed_tracesDF is None:
+            orig_concat_tracesDF, orig_feature_col_name = get_feature_components(
+                tracesDF, data_source, latent_filter_by_type, features, table_name, None,
+                pc_number, latent_column=features)
+        else:
+            orig_concat_tracesDF, orig_feature_col_name = get_feature_components(
+                original_tracesDF, data_source, latent_filter_by_type, features, table_name,
+                False, pc_number, latent_column=features)
+            imp_concat_tracesDF, imp_feature_col_name = get_feature_components(
+                imputed_tracesDF, data_source, latent_filter_by_type, features, table_name,
+                True, pc_number, latent_column=features)
+
+        features = orig_feature_col_name
+
     elif class_input in ['components', 'features_class']:
         table_name = 'calculated_pca_results_T'
         features = 'pca_results'
@@ -312,7 +339,13 @@ def select_data_type(input_type, encoding):
     return filter_by
 
 
-def get_feature_components(tracesDF, data_source, filter_by_type, feature_col_name, table_name, isImputed, pc_number):
+def get_feature_components(tracesDF, data_source, filter_by_type, feature_col_name, table_name, isImputed, pc_number,
+                           latent_column='pca_results'):
+    """Latent codes per study, joined onto the labelled cohort.
+
+    latent_column defaults to 'pca_results' so every existing PCA caller is
+    unchanged; the autoencoder table stores its codes in 'encoded_vector'.
+    """
     if isImputed:
         filter_by_type = f'{filter_by_type}-1'
     elif isImputed == False:
@@ -324,10 +357,15 @@ def get_feature_components(tracesDF, data_source, filter_by_type, feature_col_na
     componentsDF = load_queries_table_db(dbTableNames[table_name], 'reconstructed_type'
                                          , 'like', filter_by_type)
 
-    componentsDF['pca_results'] = componentsDF['pca_results'].apply(lambda x: np.array(json.loads(x)))
+    if componentsDF is None or componentsDF.empty:
+        raise ValueError(
+            f"No rows in {table_name} matching '{filter_by_type}'. Run the reduction "
+            f"for this configuration and save it before classifying on it.")
+
+    componentsDF[latent_column] = componentsDF[latent_column].apply(lambda x: np.array(json.loads(x)))
 
     if pc_number is not None:
-        componentsDF['pca_results'] = componentsDF['pca_results'].apply(
+        componentsDF[latent_column] = componentsDF[latent_column].apply(
             lambda x: x[:pc_number] if len(x) >= pc_number else x)
 
     componentsDF = componentsDF[componentsDF['data_source'] == data_source]
@@ -341,7 +379,23 @@ def get_feature_components(tracesDF, data_source, filter_by_type, feature_col_na
     return concat_tracesDF, feature_col_name
 
 
-def load_loadings(data_source, input_type, isImputed, n_components, table_name):
+def load_loadings(data_source, input_type, isImputed, n_components, table_name, n_segments=18):
+    """Loadings as (n_components, 18 * n_timepoints), ready to split by segment.
+
+    A full-trace run stores one basis fitted on all 18 segments at once, so its
+    loading vector already spans them and is returned as-is.
+
+    A segment run stores 18 separate bases, one per segment, keyed
+    'segment-<name>'. Taking row [0] - which is what this did - silently picked
+    one arbitrary segment and then let the caller split its 128 samples into 18
+    "segments", producing a plot that looked plausible and meant nothing. The
+    rows are instead stacked so that component i is every segment's own i-th
+    component laid end to end, which is what the per-segment plot should show.
+
+    Segments are ordered by name to match `segment_labels` in
+    utils_clinical_relevance, which is alphabetical; the caller labels the
+    split purely by position, so the two orderings have to agree.
+    """
     loadingsDF = load_queries_table_db(dbTableNames[table_name], 'reconstructed_type'
                                      , 'like', input_type)
 
@@ -349,9 +403,24 @@ def load_loadings(data_source, input_type, isImputed, n_components, table_name):
 
     loadingsDF = loadingsDF[loadingsDF['n_components'].astype(int) == int(n_components)]
 
-    pca_loadings = loadingsDF['components_']
+    if loadingsDF.empty:
+        raise ValueError(
+            f"No stored PCA loadings for '{input_type}' with {n_components} components "
+            f"from {data_source}. Run the reduction and save it first.")
 
-    # flat_array = np.array(pca_loadings.apply(ast.literal_eval).tolist())
-    flat_array = np.array(pca_loadings.apply(ast.literal_eval).tolist())[0]
+    loadingsDF = loadingsDF.sort_values(by='reconstructed_type')
+    per_row = np.array(loadingsDF['components_'].apply(ast.literal_eval).tolist())
 
-    return flat_array
+    if len(per_row) == 1:
+        return per_row[0]
+
+    if len(per_row) != n_segments:
+        # Neither one whole-heart basis nor one per segment; refuse rather than
+        # hand back a vector the caller will split into the wrong number of pieces.
+        raise ValueError(
+            f"Expected 1 or {n_segments} loading rows for '{input_type}' with "
+            f"{n_components} components, found {len(per_row)} "
+            f"({', '.join(loadingsDF['reconstructed_type'].astype(str)[:4])}...).")
+
+    # (segments, components, timepoints) -> (components, segments * timepoints)
+    return per_row.transpose(1, 0, 2).reshape(per_row.shape[1], -1)

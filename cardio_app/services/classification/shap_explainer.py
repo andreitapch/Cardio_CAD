@@ -1,8 +1,4 @@
-import io
-import os
-
 import shap
-import base64
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -11,8 +7,6 @@ from lightgbm import LGBMClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
-
-from pattern_recognition.utils.parameters_dics import parameters
 
 
 def compute_shap_timepoints(model, X_val, feature_names):
@@ -31,7 +25,6 @@ def compute_shap_timepoints(model, X_val, feature_names):
         return None, None
 
 
-
 def compute_shap_reduced(model, X_val, feature_names):
     try:
         X_df = pd.DataFrame(X_val, columns=feature_names)
@@ -46,7 +39,6 @@ def compute_shap_reduced(model, X_val, feature_names):
     except Exception as e:
         print(f"[ERROR] SHAP computation failed: {e}")
         return None, None
-
 
 
 def is_shap_supported_model(model):
@@ -66,37 +58,6 @@ def is_shap_supported_model(model):
         seen += 1
 
     return isinstance(model, shap_supported_models)
-
-
-def shap_beeswarm_base64(shap_values, class_input):
-    if shap_values is None:
-        return None
-
-    # if len(shap_values.shape) == 3:
-    #     shap_values = shap_values[:, :, 1]
-    shap_values = reduce_shap_to_class_1(shap_values)
-
-    mean_abs_shap = np.abs(shap_values.values).mean(axis=0)
-    top_indices = np.argsort(mean_abs_shap)[-10:]
-
-    top_shap = shap_values[:, top_indices]
-    top_shap.feature_names = [shap_values.feature_names[i] for i in top_indices]
-    top_shap.data = shap_values.data[:, top_indices]
-
-    is_time_series = class_input in ['reconstructed_traces', 'reconstructed_traces_vac']
-    title = "SHAP Time Step Importance" if is_time_series else "SHAP Feature Importance"
-
-    fig = plt.figure()
-    shap.plots.beeswarm(top_shap, show=False)
-    plt.title(title)
-
-    buf = io.BytesIO()
-    plt.savefig(buf, format="png", bbox_inches='tight')
-    plt.close(fig)
-    buf.seek(0)
-
-    encoded = base64.b64encode(buf.read()).decode("utf-8")
-    return f"data:image/png;base64,{encoded}"
 
 
 def select_important_features(shap_values, feature_names, top_n=10):
@@ -137,22 +98,10 @@ def reduce_shap_to_class_1(shap_values):
     return shap_values
 
 
-def save_shap_beeswarm_svg(shap_values, class_input, file_name='shap_beeswarm.svg'):
-    """
-    Save SHAP beeswarm plot as an SVG file to a defined folder.
-    """
-    dir_path = parameters['save_plot_dir']
-    os.makedirs(dir_path, exist_ok=True)
-
-    full_path = os.path.join(dir_path, file_name)
-
+def top_features(shap_values, n=10):
     shap_values = reduce_shap_to_class_1(shap_values)
-
-    is_time_series = class_input in ['reconstructed_traces', 'reconstructed_traces_vac']
-    title = "SHAP Time Step Importance" if is_time_series else "SHAP Feature Importance"
-
-    plt.figure()
-    shap.plots.beeswarm(shap_values, show=False)
-    plt.title(title)
-    plt.savefig(full_path, format='svg', bbox_inches='tight')
-    plt.close()
+    order = np.argsort(np.abs(shap_values.values).mean(axis=0))[-n:]
+    top = shap_values[:, order]
+    top.feature_names = [shap_values.feature_names[i] for i in order]
+    top.data = shap_values.data[:, order]
+    return top
