@@ -1,0 +1,79 @@
+# Pip-only alternative to environment.yml, for a plain venv or CI where conda
+# is not available:
+#
+#   python -m venv .venv && .venv\Scripts\activate
+#   pip install -r requirements.txt
+#
+# environment.yml is the authoritative list for local development - it is what
+# gets you a working GPU-capable install on Windows with the SQL Server driver.
+# Keep the two in step when adding a dependency.
+
+# --- core numerics ---------------------------------------------------------
+numpy>=1.24
+pandas>=2.0
+scipy>=1.10
+
+# --- machine learning ------------------------------------------------------
+scikit-learn>=1.3          # StratifiedGroupKFold
+imbalanced-learn>=0.11     # Pipeline that applies samplers on fit only
+xgboost>=2.0               # use_label_encoder removed
+lightgbm>=4.0
+shap>=0.44                 # Explanation object API
+lime>=0.2
+
+# --- dashboard -------------------------------------------------------------
+streamlit>=1.40
+plotly>=5.18
+kaleido>=0.2               # conda calls this python-kaleido
+
+# --- plotting --------------------------------------------------------------
+matplotlib>=3.7
+seaborn>=0.13
+
+# --- database --------------------------------------------------------------
+# Also needs the "ODBC Driver 17 for SQL Server" system driver.
+pyodbc>=5.0
+SQLAlchemy>=2.0
+
+# --- medical imaging / IO --------------------------------------------------
+pydicom>=2.4
+scikit-image>=0.22
+h5py>=3.10
+openpyxl>=3.1
+opencv-python>=4.8         # conda calls this opencv
+pyxlsb>=1.0.10
+
+# --- deep learning ---------------------------------------------------------
+# CPU wheels. For CUDA, install torch/torchvision from the PyTorch index first:
+#   pip install --index-url https://download.pytorch.org/whl/cu126 torch torchvision
+# then the rest of this file. See docs/environment-notes.md if TLS fails.
+torch>=2.1
+torchvision>=0.16
+tensorboard>=2.15         # SummaryWriter, in AutoencoderDm.py
+# EchoCLIP weights are open_clip format; see requirements-pip.txt for why.
+open_clip_torch>=2.24
+kornia>=0.8               # LoFTR, in motion_estimator/tracking/
+ipykernel>=6.29           # only to run motion_estimator/notebooks/
+nbformat>=5.9
+
+# --- utilities -------------------------------------------------------------
+tqdm>=4.66
+natsort>=8.4
+chardet>=5.2
+loguru>=0.7
+pydantic>=2.5
+kneed>=0.8
+pingouin>=0.5
+sympy>=1.12
+pyCompare>=1.5.4
+tabula-py>=2.9.0           # requires a Java runtime on PATH
+
+# --- tests -----------------------------------------------------------------
+pytest>=7.4
+
+# --- optional --------------------------------------------------------------
+# See requirements-pip.txt for what each of these is for.
+# openai>=1.12.0
+# transformers>=4.38.0
+# PySide6>=6.6.0
+# tensorflow>=2.15.0

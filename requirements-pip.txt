@@ -1,0 +1,62 @@
+# Packages installed with pip inside the conda env.
+#
+# Referenced from the pip: section of environment.yml, so `conda env create -f
+# environment.yml` picks these up automatically. Only put things here that
+# conda-forge does not carry, or does not keep current - anything available on
+# conda-forge belongs in environment.yml so the solver can see it.
+
+# Bland-Altman plots, plots_graphs/plotBlandAltman.py. conda-forge has no build.
+pyCompare>=1.5.4
+
+# PDF table extraction, pattern_recognition/utils/pdfToXls.py.
+# REQUIRES A JAVA RUNTIME on PATH (it shells out to the tabula JAR).
+# Install a JRE separately, or drop this line if you do not run pdfToXls.
+tabula-py>=2.9.0
+
+# pandas engine for legacy binary .xlsb workbooks,
+# pattern_recognition/data/speckle_tracking/listPhiFilesToRead.py
+pyxlsb>=1.0.10
+
+# EchoCLIP, the frozen vision-language trunk in motion_estimator/echoclip/.
+# The weights are open_clip format on the HuggingFace hub
+# ("hf-hub:mkaichristensen/echo-clip", MIT, not gated), so open_clip is what
+# loads them. conda-forge does not package it. Pulls in huggingface_hub, ftfy,
+# regex, safetensors and timm.
+#
+# Verified against 3.3.0, which is well past the 2.x the upstream echo_CLIP
+# examples were written for. Get the tokenizer with
+# open_clip.get_tokenizer("hf-hub:...") rather than the module-level
+# open_clip.tokenize the examples use; both exist, only the former respects the
+# checkpoint's own tokenizer config. See docs/environment-notes.md.
+open_clip_torch>=3.0
+
+# LoFTR, the detector-free matcher behind motion_estimator/tracking/. kornia
+# ships the architecture and fetches the pretrained weights (~44 MB, MIT,
+# ungated) into ~/.cache/torch/hub on first use; "outdoor" is MegaDepth,
+# "indoor" is ScanNet, and both are photographic, so the domain gap to
+# ultrasound speckle is real and unmeasured -- see the notebook. conda-forge
+# packages kornia but lags; verified against 0.8.3. Pulls in kornia-rs.
+kornia>=0.8
+
+# Only to run motion_estimator/notebooks/ -- the library itself needs neither.
+ipykernel>=6.29
+nbformat>=5.9
+
+# ---------------------------------------------------------------------------
+# Optional. Uncomment the block you need; none of these are on the dashboard
+# path, and each pulls in a large dependency tree.
+# ---------------------------------------------------------------------------
+
+# LLM interpretation of classifier output,
+# large_language_models/MedicalLLMInterpreter.py and test_model.py.
+# openai>=1.12.0
+# transformers>=4.38.0
+
+# Qt desktop widget for the AHA bullseye plot,
+# utils/SmoothAHAplot/src/aha_widget/. Independent of the Dash app.
+# PySide6>=6.6.0
+
+# Standalone Keras autoencoder experiment,
+# pattern_recognition/numeric_analysis/deepAutoencoder.py. Nothing else imports
+# it. On native Windows, TensorFlow has had no GPU support since 2.10.
+# tensorflow>=2.15.0
