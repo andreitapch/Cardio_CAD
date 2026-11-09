@@ -29,3 +29,22 @@ artifacts/jobs/
 .coverage
 .coverage.*
 htmlcov/
+
+# local-only clinical data and archives: never commit (purged from history 2026-11-09)
+pattern_recognition/data/FLEMENGHO_2021_final.xlsx
+plots_graphs/plots_graphs.rar
+/concatenated_trace.xlsx
+
+# data formats are local-only by default; use `git add -f` for a deliberate small example file
+*.xlsx
+*.xls
+*.mat
+*.rar
+*.zip
+*.7z
+*.dcm
+*.h5
+*.hdf5
+*.npy
+*.npz
+*.pkl
